@@ -71,8 +71,7 @@ var rootCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			if isLegacyFormat {
-				fmt.Printf("WARNING: ini format is deprecated and the support will be removed in the future, " +
-					"please use yaml/json/toml format instead!\n")
+				fmt.Printf("WARNING: ini format is no longer supported\n")
 			}
 		} else {
 			if err := serverCfg.Complete(); err != nil {

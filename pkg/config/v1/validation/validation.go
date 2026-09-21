@@ -18,25 +18,14 @@ import (
 	"errors"
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
-	splugin "github.com/fatedier/frp/pkg/plugin/server"
 )
 
 var (
-	SupportedTransportProtocols = []string{
-		"tcp",
-		"kcp",
-		"quic",
-		"websocket",
-		"wss",
-	}
-	SupportedWireProtocols = []string{
-		"v1",
-		"v2",
-	}
+	SupportedTransportProtocols = []string{"tcp"}
+	SupportedWireProtocols      = []string{"v1", "v2"}
 
 	SupportedAuthMethods = []v1.AuthMethod{
 		"token",
-		"oidc",
 	}
 
 	SupportedAuthAdditionalScopes = []v1.AuthScope{
@@ -50,15 +39,6 @@ var (
 		"info",
 		"warn",
 		"error",
-	}
-
-	SupportedHTTPPluginOps = []string{
-		splugin.OpLogin,
-		splugin.OpNewProxy,
-		splugin.OpCloseProxy,
-		splugin.OpPing,
-		splugin.OpNewWorkConn,
-		splugin.OpNewUserConn,
 	}
 )
 

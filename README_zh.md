@@ -1,115 +1,148 @@
-# frp
-
-[![Build Status](https://circleci.com/gh/fatedier/frp.svg?style=shield)](https://circleci.com/gh/fatedier/frp)
-[![GitHub release](https://img.shields.io/github/tag/fatedier/frp.svg?label=release)](https://github.com/fatedier/frp/releases)
-[![GitHub Releases Stats](https://img.shields.io/github/downloads/fatedier/frp/total.svg?logo=github)](https://somsubhra.github.io/github-release-stats/?username=fatedier&repository=frp)
+# frp-xtcp-mini
 
 [README](README.md) | [中文文档](README_zh.md)
 
-frp 是一个专注于内网穿透的高性能的反向代理应用，支持 TCP、UDP、HTTP、HTTPS 等多种协议，且支持 P2P 通信。可以将内网服务以安全、便捷的方式通过具有公网 IP 节点的中转暴露到公网。
+基于 [frp](https://github.com/fatedier/frp) **v0.71.0** 的精简版本，只保留 **XTCP NAT 打洞**。
 
-## Sponsors
+`frps` 作为公网协调节点。两台 `frpc` 完成打洞后，业务流量在客户端之间 **P2P 直连**，不再经过服务端转发。
 
-frp 是一个完全开源的项目，我们的开发工作完全依靠赞助者们的支持。如果你愿意加入他们的行列，请考虑 [赞助 frp 的开发](https://github.com/sponsors/fatedier)。
+## 做什么
 
-<h3 align="center">Gold Sponsors</h3>
-<!--gold sponsors start-->
-<p align="center">
-  <a href="https://github.com/beclab/Olares" target="_blank">
-    <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_olares.jpeg">
-	<br>
-	<b>The sovereign cloud that puts you in control</b>
-	<br>
-	<sub>An open source, self-hosted alternative to public clouds, built for data ownership and privacy</sub>
-  </a>
-</p>
+```
+  visitor frpc  ── 登录 / 打洞信令 ──►  frps（公网 IP）
+  proxy   frpc  ── 登录 / 打洞信令 ──►  frps
+       │                                  │
+       └──── P2P（KCP / QUIC）────────────┘
+            打洞成功后的数据通道
+```
 
-<div align="center">
+| 角色 | 程序 | 职责 |
+|------|------|------|
+| 协调端 | `frps` | 接受登录，交换 NAT 打洞信息 |
+| XTCP 服务端 | `frpc` 配置 `[[proxies]]` `type = "xtcp"` | 暴露本机 TCP 服务 |
+| XTCP 访问端 | `frpc` 配置 `[[visitors]]` `type = "xtcp"` | 在本机监听，并向 proxy 打洞 |
 
-## Recall.ai - API for meeting recordings
+与 `frps` 的控制连接是 **TCP**（默认 TLS + yamux）。打洞成功后的 P2P 数据通道使用 **QUIC**（默认）或 **KCP**。
 
-If you're looking for a meeting recording API, consider checking out [Recall.ai](https://www.recall.ai/?utm_source=github&utm_medium=sponsorship&utm_campaign=fatedier-frp),
+## 运行条件
 
-an API that records Zoom, Google Meet, Microsoft Teams, in-person meetings, and more.
+- 一台有 **公网 IP** 的机器跑 `frps`
+- 两台内网机器分别跑 `frpc`（proxy + visitor）
+- 打洞 **不保证** 在所有 NAT 下都能成功。两边都是对称 NAT 时通常会失败。连不上时可以用 `frpc nathole discover` 看 NAT 类型。
 
-</div>
+## 快速开始
 
-<p align="center">
-  <a href="https://jb.gg/frp" target="_blank">
-    <img width="420px" src="https://raw.githubusercontent.com/fatedier/frp/dev/doc/pic/sponsor_jetbrains.jpg">
-	<br>
-	<b>The complete IDE crafted for professional Go developers</b>
-  </a>
-</p>
-<!--gold sponsors end-->
+编译：
 
-## 为什么使用 frp ？
+```bash
+make build
+```
 
-通过在具有公网 IP 的节点上部署 frp 服务端，可以轻松地将内网服务穿透到公网，同时提供诸多专业的功能特性，这包括：
+产物在 `bin/frps` 和 `bin/frpc`。
 
-* 客户端服务端通信支持 TCP、QUIC、KCP 以及 Websocket 等多种协议。
-* 采用 TCP 连接流式复用，在单个连接间承载更多请求，节省连接建立时间，降低请求延迟。
-* 代理组间的负载均衡。
-* 端口复用，多个服务通过同一个服务端端口暴露。
-* 支持 P2P 通信，流量不经过服务器中转，充分利用带宽资源。
-* 多个原生支持的客户端插件（静态文件查看，HTTPS/HTTP 协议转换，HTTP、SOCK5 代理等），便于独立使用 frp 客户端完成某些工作。
-* 高度扩展性的服务端插件系统，易于结合自身需求进行功能扩展。
-* 服务端和客户端 UI 页面。
+### 1. 公网服务器（`frps`）
 
-## 开发状态
+```toml
+# frps.toml
+bindPort = 7000
+auth.method = "token"
+auth.token = "12345678"
+```
 
-frp 目前已被很多公司广泛用于测试、生产环境。
+```bash
+./frps -c ./frps.toml
+```
 
-master 分支用于发布稳定版本，dev 分支用于开发，您可以尝试下载最新的 release 版本进行测试。
+### 2. 机器 B — 暴露本机 SSH（`frpc` proxy）
 
-我们正在进行 v2 大版本的开发，将会尝试在各个方面进行重构和升级，且不会与 v1 版本进行兼容，预计会持续较长的一段时间。
+```toml
+# frpc.toml
+serverAddr = "x.x.x.x"
+serverPort = 7000
+auth.method = "token"
+auth.token = "12345678"
 
-现在的 v0 版本将会在合适的时间切换为 v1 版本并且保证兼容性，后续只做 bug 修复和优化，不再进行大的功能性更新。
+[[proxies]]
+name = "ssh"
+type = "xtcp"
+secretKey = "abcdefg"
+localIP = "127.0.0.1"
+localPort = 22
+```
 
-### 关于 v2 的一些说明
+```bash
+./frpc -c ./frpc.toml
+```
 
-v2 版本的复杂度和难度比我们预期的要高得多。我只能利用零散的时间进行开发，而且由于上下文经常被打断，效率极低。由于这种情况可能会持续一段时间，我们仍然会在当前版本上进行一些优化和迭代，直到我们有更多空闲时间来推进大版本的重构，或者也有可能放弃一次性的重构，而是采用渐进的方式在当前版本上逐步做一些可能会导致不兼容的修改。
+### 3. 机器 C — 访问该 SSH（`frpc` visitor）
 
-v2 的构想是基于我多年在云原生领域，特别是在 K8s 和 ServiceMesh 方面的工作经验和思考。它的核心是一个现代化的四层和七层代理，类似于 envoy。这个代理本身高度可扩展，不仅可以用于实现内网穿透的功能，还可以应用于更多领域。在这个高度可扩展的内核基础上，我们将实现 frp v1 中的所有功能，并且能够以一种更加优雅的方式实现原先架构中无法实现或不易实现的功能。同时，我们将保持高效的开发和迭代能力。
+```toml
+# frpc.toml
+serverAddr = "x.x.x.x"
+serverPort = 7000
+auth.method = "token"
+auth.token = "12345678"
 
-除此之外，我希望 frp 本身也成为一个高度可扩展的系统和平台，就像我们可以基于 K8s 提供一系列扩展能力一样。在 K8s 上，我们可以根据企业需求进行定制化开发，例如使用 CRD、controller 模式、webhook、CSI 和 CNI 等。在 frp v1 中，我们引入了服务端插件的概念，实现了一些简单的扩展性。但是，它实际上依赖于简单的 HTTP 协议，并且需要用户自己启动独立的进程和管理。这种方式远远不够灵活和方便，而且现实世界的需求千差万别，我们不能期望一个由少数人维护的非营利性开源项目能够满足所有人的需求。
+[[visitors]]
+name = "ssh-visitor"
+type = "xtcp"
+serverName = "ssh"
+secretKey = "abcdefg"
+bindAddr = "127.0.0.1"
+bindPort = 6000
+keepTunnelOpen = true
+```
 
-最后，我们意识到像配置管理、权限验证、证书管理和管理 API 等模块的当前设计并不够现代化。尽管我们可能在 v1 版本中进行一些优化，但确保兼容性是一个令人头疼的问题，需要投入大量精力来解决。
+`serverName` 必须和 proxy 的 `name` 一致，两边 `secretKey` 必须相同。
 
-非常感谢您对 frp 的支持。
+```bash
+./frpc -c ./frpc.toml
+ssh -oPort=6000 127.0.0.1
+```
 
-## 文档
+示例配置：
 
-完整文档已经迁移至 [https://gofrp.org](https://gofrp.org)。
+- [conf/frps.toml](./conf/frps.toml) / [conf/frps_full_example.toml](./conf/frps_full_example.toml)
+- [conf/frpc.toml](./conf/frpc.toml) / [conf/frpc_full_example.toml](./conf/frpc_full_example.toml)
 
-## 为 frp 做贡献
+## 配置说明
 
-frp 是一个免费且开源的项目，我们欢迎任何人为其开发和进步贡献力量。
+支持 TOML、YAML、JSON，不再支持 INI。
 
-* 在使用过程中出现任何问题，可以通过 [issues](https://github.com/fatedier/frp/issues) 来反馈。
-* Bug 的修复可以直接提交 Pull Request 到 dev 分支。
-* 如果是增加新的功能特性，请先创建一个 issue 并做简单描述以及大致的实现方法，提议被采纳后，就可以创建一个实现新特性的 Pull Request。
-* 欢迎对说明文档做出改善，帮助更多的人使用 frp，特别是英文文档。
-* 贡献代码请提交 PR 至 dev 分支，master 分支仅用于发布稳定可用版本。
-* 如果你有任何其他方面的问题或合作，欢迎发送邮件至 fatedier@gmail.com 。
+认证只保留 token：`frps` 和每台 `frpc` 的 `auth.token` 必须相同。也可以用 `auth.tokenSource` 从文件读取 token。
 
-**提醒：和项目相关的问题请在 [issues](https://github.com/fatedier/frp/issues) 中反馈，这样方便其他有类似问题的人可以快速查找解决方法，并且也避免了我们重复回答一些问题。**
+常用字段：
 
-## 关联项目
+| 字段 | 位置 | 含义 |
+|------|------|------|
+| `natHoleStunServer` | `frpc` | 用于探测公网地址 / NAT 类型的 STUN。默认 `stun.easyvoip.com:3478` |
+| `keepTunnelOpen` | visitor | 持续打洞，保持隧道就绪 |
+| `protocol` | visitor | P2P 传输：`quic`（默认）或 `kcp` |
+| `fallbackTo` | visitor | 当前 visitor 失败时，回退到另一个 **xtcp** visitor |
+| `transport.useEncryption` / `useCompression` | proxy / visitor | 隧道额外加密 / 压缩 |
+| `natholeAnalysisDataReserveHours` | `frps` | 打洞分析数据保留时长（默认 168 小时） |
 
-* [gofrp/plugin](https://github.com/gofrp/plugin) - frp 插件仓库，收录了基于 frp 扩展机制实现的各种插件，满足各种场景下的定制化需求。
-* [gofrp/tiny-frpc](https://github.com/gofrp/tiny-frpc) - 基于 ssh 协议实现的 frp 客户端的精简版本(最低约 3.5MB 左右)，支持常用的部分功能，适用于资源有限的设备。
+配置里可以用环境变量 `{{ .Envs.NAME }}`，也可以用 `includes` 拆分文件。
 
-## 赞助
+探测 NAT：
 
-如果您觉得 frp 对你有帮助，欢迎给予我们一定的捐助来维持项目的长期发展。
+```bash
+./frpc nathole discover
+```
 
-### Sponsors
+## 已移除的功能
 
-长期赞助可以帮助我们保持项目的持续发展。
+本仓库只保留 XTCP。相对上游 frp，以下能力均已去掉：
 
-您可以通过 [GitHub Sponsors](https://github.com/sponsors/fatedier) 赞助我们。
+TCP / UDP / HTTP / HTTPS / STCP / SUDP / TCPMUX 代理、插件、VirtualNet、SSH Tunnel Gateway、Dashboard、OIDC、Prometheus、vhost、负载均衡、健康检查、带宽限制、Proxy Protocol、INI 配置，以及用 KCP / QUIC / websocket 作为连 `frps` 的 **控制通道**。
 
-国内用户可以通过 [爱发电](https://afdian.com/a/fatedier) 赞助我们。
+## 开发
 
-企业赞助者可以将贵公司的 Logo 以及链接放置在项目 README 文件中。
+```bash
+make build      # 编译 frps + frpc
+make test       # 单元测试
+make e2e        # XTCP 端到端测试（Ginkgo）
+make alltest    # vet + 单元测试 + e2e
+```
+
+上游项目：[fatedier/frp](https://github.com/fatedier/frp)。许可证：[Apache 2.0](./LICENSE)。

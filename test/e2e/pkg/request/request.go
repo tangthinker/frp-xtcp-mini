@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,6 @@ import (
 
 	libnet "github.com/fatedier/golib/net"
 
-	httppkg "github.com/fatedier/frp/pkg/util/http"
 	"github.com/fatedier/frp/test/e2e/pkg/rpc"
 )
 
@@ -114,7 +114,8 @@ func (r *Request) HTTPHeaders(headers map[string]string) *Request {
 }
 
 func (r *Request) HTTPAuth(user, password string) *Request {
-	r.authValue = httppkg.BasicAuth(user, password)
+	auth := user + ":" + password
+	r.authValue = "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
 	return r
 }
 

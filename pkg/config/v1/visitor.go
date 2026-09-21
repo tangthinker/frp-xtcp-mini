@@ -27,30 +27,20 @@ type VisitorTransport struct {
 }
 
 type VisitorBaseConfig struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	// Enabled controls whether this visitor is enabled. nil or true means enabled, false means disabled.
-	// This allows individual control over each visitor, complementing the global "start" field.
+	Name      string           `json:"name"`
+	Type      string           `json:"type"`
 	Enabled   *bool            `json:"enabled,omitempty"`
 	Transport VisitorTransport `json:"transport,omitempty"`
 	SecretKey string           `json:"secretKey,omitempty"`
-	// if the server user is not set, it defaults to the current user
-	ServerUser string `json:"serverUser,omitempty"`
-	ServerName string `json:"serverName,omitempty"`
-	BindAddr   string `json:"bindAddr,omitempty"`
-	// BindPort is the port that visitor listens on.
-	// It can be less than 0, it means don't bind to the port and only receive connections redirected from
-	// other visitors. (This is not supported for SUDP now)
-	BindPort int `json:"bindPort,omitempty"`
-
-	// Plugin specifies what plugin should be used.
-	Plugin TypedVisitorPluginOptions `json:"plugin,omitempty"`
+	ServerUser string          `json:"serverUser,omitempty"`
+	ServerName string          `json:"serverName,omitempty"`
+	BindAddr   string          `json:"bindAddr,omitempty"`
+	BindPort   int             `json:"bindPort,omitempty"`
 }
 
 func (c VisitorBaseConfig) Clone() VisitorBaseConfig {
 	out := c
 	out.Enabled = util.ClonePtr(c.Enabled)
-	out.Plugin = c.Plugin.Clone()
 	return out
 }
 
@@ -73,15 +63,11 @@ type VisitorConfigurer interface {
 type VisitorType string
 
 const (
-	VisitorTypeSTCP VisitorType = "stcp"
 	VisitorTypeXTCP VisitorType = "xtcp"
-	VisitorTypeSUDP VisitorType = "sudp"
 )
 
 var visitorConfigTypeMap = map[VisitorType]reflect.Type{
-	VisitorTypeSTCP: reflect.TypeFor[STCPVisitorConfig](),
 	VisitorTypeXTCP: reflect.TypeFor[XTCPVisitorConfig](),
-	VisitorTypeSUDP: reflect.TypeFor[SUDPVisitorConfig](),
 }
 
 type TypedVisitorConfig struct {
@@ -114,30 +100,6 @@ func NewVisitorConfigurerByType(t VisitorType) VisitorConfigurer {
 	return vc
 }
 
-var _ VisitorConfigurer = &STCPVisitorConfig{}
-
-type STCPVisitorConfig struct {
-	VisitorBaseConfig
-}
-
-func (c *STCPVisitorConfig) Clone() VisitorConfigurer {
-	out := *c
-	out.VisitorBaseConfig = c.VisitorBaseConfig.Clone()
-	return &out
-}
-
-var _ VisitorConfigurer = &SUDPVisitorConfig{}
-
-type SUDPVisitorConfig struct {
-	VisitorBaseConfig
-}
-
-func (c *SUDPVisitorConfig) Clone() VisitorConfigurer {
-	out := *c
-	out.VisitorBaseConfig = c.VisitorBaseConfig.Clone()
-	return &out
-}
-
 var _ VisitorConfigurer = &XTCPVisitorConfig{}
 
 type XTCPVisitorConfig struct {
@@ -150,7 +112,6 @@ type XTCPVisitorConfig struct {
 	FallbackTo        string `json:"fallbackTo,omitempty"`
 	FallbackTimeoutMs int    `json:"fallbackTimeoutMs,omitempty"`
 
-	// NatTraversal configuration for NAT traversal
 	NatTraversal *NatTraversalConfig `json:"natTraversal,omitempty"`
 }
 

@@ -23,22 +23,20 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 )
 
-// mockProxy creates a TCP proxy config for testing
 func mockProxy(name string) v1.ProxyConfigurer {
-	cfg := &v1.TCPProxyConfig{}
+	cfg := &v1.XTCPProxyConfig{}
 	cfg.Name = name
-	cfg.Type = "tcp"
+	cfg.Type = "xtcp"
 	cfg.LocalPort = 8080
-	cfg.RemotePort = 9090
 	return cfg
 }
 
-// mockVisitor creates a STCP visitor config for testing
 func mockVisitor(name string) v1.VisitorConfigurer {
-	cfg := &v1.STCPVisitorConfig{}
+	cfg := &v1.XTCPVisitorConfig{}
 	cfg.Name = name
-	cfg.Type = "stcp"
+	cfg.Type = "xtcp"
 	cfg.ServerName = "test-server"
+	cfg.BindPort = 9000
 	return cfg
 }
 
@@ -118,17 +116,17 @@ func TestAggregator_MergeBySourceOrder(t *testing.T) {
 
 	configSource := agg.ConfigSource()
 
-	configShared := mockProxy("shared").(*v1.TCPProxyConfig)
+	configShared := mockProxy("shared").(*v1.XTCPProxyConfig)
 	configShared.LocalPort = 1111
-	configOnly := mockProxy("only-in-config").(*v1.TCPProxyConfig)
+	configOnly := mockProxy("only-in-config").(*v1.XTCPProxyConfig)
 	configOnly.LocalPort = 1112
 
 	err := configSource.ReplaceAll([]v1.ProxyConfigurer{configShared, configOnly}, nil)
 	require.NoError(err)
 
-	storeShared := mockProxy("shared").(*v1.TCPProxyConfig)
+	storeShared := mockProxy("shared").(*v1.XTCPProxyConfig)
 	storeShared.LocalPort = 2222
-	storeOnly := mockProxy("only-in-store").(*v1.TCPProxyConfig)
+	storeOnly := mockProxy("only-in-store").(*v1.XTCPProxyConfig)
 	storeOnly.LocalPort = 2223
 	err = storeSource.AddProxy(storeShared)
 	require.NoError(err)
@@ -140,10 +138,10 @@ func TestAggregator_MergeBySourceOrder(t *testing.T) {
 	require.Len(visitors, 0)
 	require.Len(proxies, 3)
 
-	var sharedProxy *v1.TCPProxyConfig
+	var sharedProxy *v1.XTCPProxyConfig
 	for _, p := range proxies {
 		if p.GetBaseConfig().Name == "shared" {
-			sharedProxy = p.(*v1.TCPProxyConfig)
+			sharedProxy = p.(*v1.XTCPProxyConfig)
 			break
 		}
 	}
@@ -158,13 +156,13 @@ func TestAggregator_DisabledEntryIsSourceLocalFilter(t *testing.T) {
 	agg := newTestAggregator(t, storeSource)
 	configSource := agg.ConfigSource()
 
-	lowProxy := mockProxy("shared-proxy").(*v1.TCPProxyConfig)
+	lowProxy := mockProxy("shared-proxy").(*v1.XTCPProxyConfig)
 	lowProxy.LocalPort = 1111
 	err := configSource.ReplaceAll([]v1.ProxyConfigurer{lowProxy}, nil)
 	require.NoError(err)
 
 	disabled := false
-	highProxy := mockProxy("shared-proxy").(*v1.TCPProxyConfig)
+	highProxy := mockProxy("shared-proxy").(*v1.XTCPProxyConfig)
 	highProxy.LocalPort = 2222
 	highProxy.Enabled = &disabled
 	err = storeSource.AddProxy(highProxy)
@@ -175,7 +173,7 @@ func TestAggregator_DisabledEntryIsSourceLocalFilter(t *testing.T) {
 	require.Len(proxies, 1)
 	require.Len(visitors, 0)
 
-	proxy := proxies[0].(*v1.TCPProxyConfig)
+	proxy := proxies[0].(*v1.XTCPProxyConfig)
 	require.Equal("shared-proxy", proxy.Name)
 	require.Equal(1111, proxy.LocalPort)
 }

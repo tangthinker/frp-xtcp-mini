@@ -26,11 +26,9 @@ import (
 
 	toml "github.com/pelletier/go-toml/v2"
 	"github.com/samber/lo"
-	"gopkg.in/ini.v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	"github.com/fatedier/frp/pkg/config/legacy"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/pkg/msg"
@@ -60,25 +58,6 @@ func GetValues() *Values {
 	return &Values{
 		Envs: glbEnvs,
 	}
-}
-
-func DetectLegacyINIFormat(content []byte) bool {
-	f, err := ini.Load(content)
-	if err != nil {
-		return false
-	}
-	if _, err := f.GetSection("common"); err == nil {
-		return true
-	}
-	return false
-}
-
-func DetectLegacyINIFormatFromFile(path string) bool {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	return DetectLegacyINIFormat(b)
 }
 
 func RenderWithTemplate(in []byte, values *Values) ([]byte, error) {
@@ -276,7 +255,7 @@ func findFieldLineInContent(content []byte, fieldPath string) int {
 }
 
 func NewProxyConfigurerFromMsg(m *msg.NewProxy, serverCfg *v1.ServerConfig) (v1.ProxyConfigurer, error) {
-	m.ProxyType = util.EmptyOr(m.ProxyType, string(v1.ProxyTypeTCP))
+	m.ProxyType = util.EmptyOr(m.ProxyType, string(v1.ProxyTypeXTCP))
 
 	configurer := v1.NewProxyConfigurerByType(v1.ProxyType(m.ProxyType))
 	if configurer == nil {
@@ -293,34 +272,14 @@ func NewProxyConfigurerFromMsg(m *msg.NewProxy, serverCfg *v1.ServerConfig) (v1.
 }
 
 func LoadServerConfig(path string, strict bool) (*v1.ServerConfig, bool, error) {
-	var (
-		svrCfg         *v1.ServerConfig
-		isLegacyFormat bool
-	)
-	// detect legacy ini format
-	if DetectLegacyINIFormatFromFile(path) {
-		content, err := legacy.GetRenderedConfFromFile(path)
-		if err != nil {
-			return nil, true, err
-		}
-		legacyCfg, err := legacy.UnmarshalServerConfFromIni(content)
-		if err != nil {
-			return nil, true, err
-		}
-		svrCfg = legacy.Convert_ServerCommonConf_To_v1(&legacyCfg)
-		isLegacyFormat = true
-	} else {
-		svrCfg = &v1.ServerConfig{}
-		if err := LoadConfigureFromFile(path, svrCfg, strict); err != nil {
-			return nil, false, err
-		}
+	svrCfg := &v1.ServerConfig{}
+	if err := LoadConfigureFromFile(path, svrCfg, strict); err != nil {
+		return nil, false, err
 	}
-	if svrCfg != nil {
-		if err := svrCfg.Complete(); err != nil {
-			return nil, isLegacyFormat, err
-		}
+	if err := svrCfg.Complete(); err != nil {
+		return nil, false, err
 	}
-	return svrCfg, isLegacyFormat, nil
+	return svrCfg, false, nil
 }
 
 // ClientConfigLoadResult contains the result of loading a client configuration file.
@@ -349,36 +308,19 @@ func LoadClientConfigResult(path string, strict bool) (*ClientConfigLoadResult, 
 		Visitors: make([]v1.VisitorConfigurer, 0),
 	}
 
-	if DetectLegacyINIFormatFromFile(path) {
-		legacyCommon, legacyProxyCfgs, legacyVisitorCfgs, err := legacy.ParseClientConfig(path)
-		if err != nil {
-			return nil, err
-		}
-		result.Common = legacy.Convert_ClientCommonConf_To_v1(&legacyCommon)
-		for _, c := range legacyProxyCfgs {
-			result.Proxies = append(result.Proxies, legacy.Convert_ProxyConf_To_v1(c))
-		}
-		for _, c := range legacyVisitorCfgs {
-			result.Visitors = append(result.Visitors, legacy.Convert_VisitorConf_To_v1(c))
-		}
-		result.IsLegacyFormat = true
-	} else {
-		allCfg := v1.ClientConfig{}
-		if err := LoadConfigureFromFile(path, &allCfg, strict); err != nil {
-			return nil, err
-		}
-		result.Common = &allCfg.ClientCommonConfig
-		for _, c := range allCfg.Proxies {
-			result.Proxies = append(result.Proxies, c.ProxyConfigurer)
-		}
-		for _, c := range allCfg.Visitors {
-			result.Visitors = append(result.Visitors, c.VisitorConfigurer)
-		}
+	allCfg := v1.ClientConfig{}
+	if err := LoadConfigureFromFile(path, &allCfg, strict); err != nil {
+		return nil, err
+	}
+	result.Common = &allCfg.ClientCommonConfig
+	for _, c := range allCfg.Proxies {
+		result.Proxies = append(result.Proxies, c.ProxyConfigurer)
+	}
+	for _, c := range allCfg.Visitors {
+		result.Visitors = append(result.Visitors, c.VisitorConfigurer)
 	}
 
-	// Load additional config from includes.
-	// legacy ini format already handle this in ParseClientConfig.
-	if len(result.Common.IncludeConfigFiles) > 0 && !result.IsLegacyFormat {
+	if len(result.Common.IncludeConfigFiles) > 0 {
 		extProxyCfgs, extVisitorCfgs, err := LoadAdditionalClientConfigs(result.Common.IncludeConfigFiles, result.IsLegacyFormat, strict)
 		if err != nil {
 			return nil, err

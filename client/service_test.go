@@ -5,7 +5,6 @@ import (
 	"errors"
 	"net"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -31,29 +30,12 @@ func (c *failingConnector) Close() error {
 	return nil
 }
 
-func getFreeTCPPort(t *testing.T) int {
-	t.Helper()
-
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen on ephemeral port: %v", err)
-	}
-	defer ln.Close()
-
-	return ln.Addr().(*net.TCPAddr).Port
-}
-
-func TestRunStopsStartedComponentsOnInitialLoginFailure(t *testing.T) {
-	port := getFreeTCPPort(t)
+func TestRunStopsOnInitialLoginFailure(t *testing.T) {
 	agg := source.NewAggregator(source.NewConfigSource())
 
 	svr, err := NewService(ServiceOptions{
 		Common: &v1.ClientCommonConfig{
 			LoginFailExit: lo.ToPtr(true),
-			WebServer: v1.WebServerConfig{
-				Addr: "127.0.0.1",
-				Port: port,
-			},
 		},
 		ConfigSourceAggregator: agg,
 		ConnectorCreator: func(context.Context, *v1.ClientCommonConfig) Connector {
@@ -71,48 +53,6 @@ func TestRunStopsStartedComponentsOnInitialLoginFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "login boom") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if svr.webServer != nil {
-		t.Fatal("expected web server to be cleaned up after initial login failure")
-	}
-
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err != nil {
-		t.Fatalf("expected admin port to be released: %v", err)
-	}
-	_ = ln.Close()
-}
-
-func TestNewServiceDoesNotLeakAdminListenerOnAuthBuildFailure(t *testing.T) {
-	port := getFreeTCPPort(t)
-	agg := source.NewAggregator(source.NewConfigSource())
-
-	_, err := NewService(ServiceOptions{
-		Common: &v1.ClientCommonConfig{
-			Auth: v1.AuthClientConfig{
-				Method: v1.AuthMethodOIDC,
-				OIDC: v1.AuthOIDCClientConfig{
-					TokenEndpointURL: "://bad",
-				},
-			},
-			WebServer: v1.WebServerConfig{
-				Addr: "127.0.0.1",
-				Port: port,
-			},
-		},
-		ConfigSourceAggregator: agg,
-	})
-	if err == nil {
-		t.Fatal("expected new service error, got nil")
-	}
-	if !strings.Contains(err.Error(), "auth.oidc.tokenEndpointURL") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
-	if err != nil {
-		t.Fatalf("expected admin port to remain free: %v", err)
-	}
-	_ = ln.Close()
 }
 
 func TestUpdateConfigSourceRollsBackReloadCommonOnReplaceAllFailure(t *testing.T) {
@@ -124,7 +64,7 @@ func TestUpdateConfigSourceRollsBackReloadCommonOnReplaceAllFailure(t *testing.T
 		reloadCommon: prevCommon,
 	}
 
-	invalidProxy := &v1.TCPProxyConfig{}
+	invalidProxy := &v1.XTCPProxyConfig{}
 	err := svr.UpdateConfigSource(newCommon, []v1.ProxyConfigurer{invalidProxy}, nil)
 	if err == nil {
 		t.Fatal("expected error, got nil")
@@ -144,17 +84,15 @@ func TestUpdateConfigSourceKeepsReloadCommonOnReloadFailure(t *testing.T) {
 	newCommon := &v1.ClientCommonConfig{User: "new-user"}
 
 	svr := &Service{
-		// Keep configSource valid so ReplaceAll succeeds first.
 		configSource: source.NewConfigSource(),
 		reloadCommon: prevCommon,
-		// Keep aggregator nil to force reload failure.
-		aggregator: nil,
+		aggregator:   nil,
 	}
 
-	validProxy := &v1.TCPProxyConfig{
+	validProxy := &v1.XTCPProxyConfig{
 		ProxyBaseConfig: v1.ProxyBaseConfig{
 			Name: "p1",
-			Type: "tcp",
+			Type: "xtcp",
 		},
 	}
 	err := svr.UpdateConfigSource(newCommon, []v1.ProxyConfigurer{validProxy}, nil)
@@ -179,16 +117,18 @@ func TestReloadConfigFromSourcesDoesNotMutateStoreConfigs(t *testing.T) {
 		t.Fatalf("new store source: %v", err)
 	}
 
-	proxyCfg := &v1.TCPProxyConfig{
+	proxyCfg := &v1.XTCPProxyConfig{
 		ProxyBaseConfig: v1.ProxyBaseConfig{
 			Name: "store-proxy",
-			Type: "tcp",
+			Type: "xtcp",
 		},
 	}
-	visitorCfg := &v1.STCPVisitorConfig{
+	visitorCfg := &v1.XTCPVisitorConfig{
 		VisitorBaseConfig: v1.VisitorBaseConfig{
-			Name: "store-visitor",
-			Type: "stcp",
+			Name:       "store-visitor",
+			Type:       "xtcp",
+			ServerName: "store-proxy",
+			BindPort:   10081,
 		},
 	}
 	if err := storeSource.AddProxy(proxyCfg); err != nil {

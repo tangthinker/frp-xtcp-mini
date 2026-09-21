@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -33,15 +32,11 @@ import (
 	"github.com/fatedier/frp/pkg/config"
 	"github.com/fatedier/frp/pkg/config/source"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
-	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/policy/security"
-	httppkg "github.com/fatedier/frp/pkg/util/http"
-	"github.com/fatedier/frp/pkg/util/log"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/wait"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 func init() {
@@ -122,11 +117,6 @@ type Service struct {
 	// Auth runtime and encryption materials
 	auth *auth.ClientAuth
 
-	// web server for admin UI and apis
-	webServer *httppkg.Server
-
-	vnetController *vnet.Controller
-
 	cfgMu sync.RWMutex
 	// reloadMu serializes reload transactions to keep reloadCommon and applied
 	// config in sync across concurrent API operations.
@@ -185,21 +175,9 @@ func NewService(options ServiceOptions) (*Service, error) {
 	proxyCfgs = config.CompleteProxyConfigurers(proxyCfgs)
 	visitorCfgs = config.CompleteVisitorConfigurers(visitorCfgs)
 
-	// Create the web server after all fallible steps so its listener is not
-	// leaked when an earlier error causes NewService to return.
-	var webServer *httppkg.Server
-	if options.Common.WebServer.Port > 0 {
-		ws, err := httppkg.NewServer(options.Common.WebServer)
-		if err != nil {
-			return nil, err
-		}
-		webServer = ws
-	}
-
 	s := &Service{
 		ctx:              context.Background(),
 		auth:             authRuntime,
-		webServer:        webServer,
 		common:           options.Common,
 		reloadCommon:     options.Common,
 		configFilePath:   options.ConfigFilePath,
@@ -212,13 +190,6 @@ func NewService(options ServiceOptions) (*Service, error) {
 		storeSource:      storeSource,
 		connectorCreator: options.ConnectorCreator,
 		handleWorkConnCb: options.HandleWorkConnCb,
-	}
-
-	if webServer != nil {
-		webServer.RouteRegister(s.registerRouteHandlers)
-	}
-	if options.Common.VirtualNet.Address != "" {
-		s.vnetController = vnet.NewController(options.Common.VirtualNet)
 	}
 	return s, nil
 }
@@ -233,32 +204,6 @@ func (svr *Service) Run(ctx context.Context) error {
 		netpkg.SetDefaultDNSAddress(svr.common.DNSServer)
 	}
 
-	if svr.vnetController != nil {
-		vnetController := svr.vnetController
-		if err := svr.vnetController.Init(); err != nil {
-			log.Errorf("init virtual network controller error: %v", err)
-			svr.stop()
-			return err
-		}
-		go func() {
-			log.Infof("virtual network controller start...")
-			if err := vnetController.Run(); err != nil && !errors.Is(err, net.ErrClosed) {
-				log.Warnf("virtual network controller exit with error: %v", err)
-			}
-		}()
-	}
-
-	if svr.webServer != nil {
-		webServer := svr.webServer
-		go func() {
-			log.Infof("admin server listen on %s", webServer.Address())
-			if err := webServer.Run(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				log.Warnf("admin server exit with error: %v", err)
-			}
-		}()
-	}
-
-	// first login to frps
 	svr.loopLoginUntilSuccess(10*time.Second, lo.FromPtr(svr.common.LoginFailExit))
 	if svr.ctl == nil {
 		cancelCause := cancelErr{}
@@ -315,7 +260,6 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 			common:           svr.common,
 			auth:             svr.auth,
 			clientSpec:       svr.clientSpec,
-			vnetController:   svr.vnetController,
 			connectorCreator: svr.connectorCreator,
 		}
 		sessionCtx, err := dialer.Dial(svr.runID)
@@ -437,14 +381,6 @@ func (svr *Service) stop() {
 		svr.ctl.GracefulClose(d)
 		svr.ctl = nil
 	}
-	if svr.webServer != nil {
-		svr.webServer.Close()
-		svr.webServer = nil
-	}
-	if svr.vnetController != nil {
-		_ = svr.vnetController.Stop()
-		svr.vnetController = nil
-	}
 }
 
 func (svr *Service) getProxyStatus(name string) (*proxy.WorkingStatus, bool) {
@@ -511,15 +447,7 @@ func (svr *Service) reloadConfigFromSourcesLocked() error {
 	proxies, visitors = config.FilterClientConfigurers(reloadCommon, proxies, visitors)
 	proxies = config.CompleteProxyConfigurers(proxies)
 	visitors = config.CompleteVisitorConfigurers(visitors)
-	requirements := validation.GetClientConfigRequirements(reloadCommon, proxies, visitors)
-	if svr.vnetController == nil && requirements.VirtualNet {
-		return errors.New(
-			"VirtualNet-dependent configuration requires a VirtualNet runtime enabled at startup; " +
-				"restart frpc after configuring featureGates.VirtualNet and virtualNet.address",
-		)
-	}
 
-	// Atomically replace the entire configuration
 	if err := svr.UpdateAllConfigurer(proxies, visitors); err != nil {
 		return err
 	}

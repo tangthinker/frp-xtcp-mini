@@ -14,8 +14,7 @@ const (
 )
 
 var (
-	PortServerName  string
-	PortClientAdmin string
+	PortServerName string
 
 	DefaultServerConfig = `
 bindPort = {{ .%s }}
@@ -28,28 +27,10 @@ serverPort = {{ .%s }}
 loginFailExit = false
 log.level = "trace"
 `
-
-	LegacyDefaultServerConfig = `
-	[common]
-	bind_port = {{ .%s }}
-	log_level = trace
-	`
-
-	LegacyDefaultClientConfig = `
-	[common]
-	server_addr = 127.0.0.1
-	server_port = {{ .%s }}
-	login_fail_exit = false
-	log_level = trace
-	`
 )
 
 func init() {
 	PortServerName = port.GenName("Server")
-	PortClientAdmin = port.GenName("ClientAdmin")
-	LegacyDefaultServerConfig = fmt.Sprintf(LegacyDefaultServerConfig, port.GenName("Server"))
-	LegacyDefaultClientConfig = fmt.Sprintf(LegacyDefaultClientConfig, port.GenName("Server"))
-
 	DefaultServerConfig = fmt.Sprintf(DefaultServerConfig, port.GenName("Server"))
 	DefaultClientConfig = fmt.Sprintf(DefaultClientConfig, port.GenName("Server"))
 }

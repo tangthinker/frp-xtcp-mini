@@ -1,9 +1,12 @@
 serverAddr = "127.0.0.1"
 serverPort = 7000
+auth.method = "token"
+auth.token = "12345678"
 
+# XTCP server side: expose a local TCP service via NAT hole punching.
 [[proxies]]
-name = "test-tcp"
-type = "tcp"
+name = "ssh"
+type = "xtcp"
+secretKey = "abcdefg"
 localIP = "127.0.0.1"
 localPort = 22
-remotePort = 6000

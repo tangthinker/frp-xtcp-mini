@@ -31,7 +31,6 @@ import (
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	pkgerr "github.com/fatedier/frp/pkg/errors"
 	"github.com/fatedier/frp/pkg/msg"
-	plugin "github.com/fatedier/frp/pkg/plugin/server"
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/util"
 	"github.com/fatedier/frp/pkg/util/wait"
@@ -358,8 +357,6 @@ type SessionContext struct {
 	RC *controller.ResourceController
 	// proxy manager
 	PxyManager *proxy.Manager
-	// plugin manager
-	PluginManager *plugin.Manager
 	// verifies authentication based on selected method
 	AuthVerifier auth.Verifier
 	// key used for connection encryption
@@ -656,28 +653,10 @@ func (ctl *Control) WaitClosed() {
 	<-ctl.doneCh
 }
 
-func (ctl *Control) loginUserInfo() plugin.UserInfo {
-	return plugin.UserInfo{
-		User:  ctl.sessionCtx.LoginMsg.User,
-		Metas: ctl.sessionCtx.LoginMsg.Metas,
-		RunID: ctl.runID,
-	}
-}
-
 func (ctl *Control) closeProxy(pxy proxy.Proxy) {
 	pxy.Close()
 	ctl.sessionCtx.PxyManager.Del(pxy.GetName())
 	ctl.serverMetrics.CloseProxy(pxy.GetName(), pxy.GetConfigurer().GetBaseConfig().Type)
-
-	notifyContent := &plugin.CloseProxyContent{
-		User: ctl.loginUserInfo(),
-		CloseProxy: msg.CloseProxy{
-			ProxyName: pxy.GetName(),
-		},
-	}
-	go func() {
-		_ = ctl.sessionCtx.PluginManager.CloseProxy(notifyContent)
-	}()
 }
 
 func (ctl *Control) worker() {
@@ -737,18 +716,8 @@ func (ctl *Control) handleNewProxy(m msg.Message) {
 	xl := ctl.xl
 	inMsg := m.(*msg.NewProxy)
 
-	content := &plugin.NewProxyContent{
-		User:     ctl.loginUserInfo(),
-		NewProxy: *inMsg,
-	}
-	var remoteAddr string
-	retContent, err := ctl.sessionCtx.PluginManager.NewProxy(content)
-	if err == nil {
-		inMsg = &retContent.NewProxy
-		remoteAddr, err = ctl.RegisterProxy(inMsg)
-	}
+	remoteAddr, err := ctl.RegisterProxy(inMsg)
 
-	// register proxy in this control
 	resp := &msg.NewProxyResp{
 		ProxyName: inMsg.ProxyName,
 	}
@@ -772,15 +741,7 @@ func (ctl *Control) handlePing(m msg.Message) {
 	xl := ctl.xl
 	inMsg := m.(*msg.Ping)
 
-	content := &plugin.PingContent{
-		User: ctl.loginUserInfo(),
-		Ping: *inMsg,
-	}
-	retContent, err := ctl.sessionCtx.PluginManager.Ping(content)
-	if err == nil {
-		inMsg = &retContent.Ping
-		err = ctl.sessionCtx.AuthVerifier.VerifyPing(inMsg)
-	}
+	err := ctl.sessionCtx.AuthVerifier.VerifyPing(inMsg)
 	if err != nil {
 		xl.Warnf("received invalid ping: %v", err)
 		_ = ctl.msgDispatcher.Send(&msg.Pong{
@@ -824,7 +785,7 @@ func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (remoteAddr string, err 
 	}
 
 	// User info
-	userInfo := plugin.UserInfo{
+	userInfo := auth.UserInfo{
 		User:  ctl.sessionCtx.LoginMsg.User,
 		Metas: ctl.sessionCtx.LoginMsg.Metas,
 		RunID: ctl.runID,
@@ -846,26 +807,6 @@ func (ctl *Control) RegisterProxy(pxyMsg *msg.NewProxy) (remoteAddr string, err 
 	})
 	if err != nil {
 		return remoteAddr, err
-	}
-
-	// Check ports used number in each client
-	if ctl.sessionCtx.ServerCfg.MaxPortsPerClient > 0 {
-		ctl.mu.Lock()
-		if ctl.portsUsedNum+pxy.GetUsedPortsNum() > int(ctl.sessionCtx.ServerCfg.MaxPortsPerClient) {
-			ctl.mu.Unlock()
-			err = fmt.Errorf("exceed the max_ports_per_client")
-			return
-		}
-		ctl.portsUsedNum += pxy.GetUsedPortsNum()
-		ctl.mu.Unlock()
-
-		defer func() {
-			if err != nil {
-				ctl.mu.Lock()
-				ctl.portsUsedNum -= pxy.GetUsedPortsNum()
-				ctl.mu.Unlock()
-			}
-		}()
 	}
 
 	if ctl.sessionCtx.PxyManager.Exist(pxyMsg.ProxyName) {
@@ -902,9 +843,6 @@ func (ctl *Control) CloseProxy(closeMsg *msg.CloseProxy) (err error) {
 		return
 	}
 
-	if ctl.sessionCtx.ServerCfg.MaxPortsPerClient > 0 {
-		ctl.portsUsedNum -= pxy.GetUsedPortsNum()
-	}
 	delete(ctl.proxies, closeMsg.ProxyName)
 	ctl.mu.Unlock()
 

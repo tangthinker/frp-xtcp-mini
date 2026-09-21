@@ -47,7 +47,7 @@ var (
 )
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.ini", "config file of frpc")
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "./frpc.toml", "config file of frpc")
 	rootCmd.PersistentFlags().StringVarP(&cfgDir, "config_dir", "", "", "config directory, run one frpc service for each file in config directory")
 	rootCmd.PersistentFlags().BoolVarP(&showVersion, "version", "v", false, "version of frpc")
 	rootCmd.PersistentFlags().BoolVarP(&strictConfigMode, "strict_config", "", true, "strict config parsing mode, unknown fields will cause an errors")
@@ -126,8 +126,7 @@ func runClient(cfgFilePath string, unsafeFeatures *security.UnsafeFeatures) erro
 		return err
 	}
 	if result.IsLegacyFormat {
-		fmt.Printf("WARNING: ini format is deprecated and the support will be removed in the future, " +
-			"please use yaml/json/toml format instead!\n")
+		fmt.Printf("WARNING: ini format is no longer supported\n")
 	}
 
 	return runClientWithAggregator(result, unsafeFeatures, cfgFilePath)
@@ -204,7 +203,7 @@ func startServiceWithAggregator(
 		return err
 	}
 
-	shouldGracefulClose := cfg.Transport.Protocol == "kcp" || cfg.Transport.Protocol == "quic"
+	shouldGracefulClose := cfg.Transport.Protocol == "tcp"
 	if shouldGracefulClose {
 		go handleTermSignal(svr)
 	}

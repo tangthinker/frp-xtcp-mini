@@ -74,10 +74,6 @@ func (sv *XTCPVisitor) Run() (err error) {
 		sv.retryLimiter = rate.NewLimiter(rate.Every(time.Hour/time.Duration(sv.cfg.MaxRetriesAnHour)), sv.cfg.MaxRetriesAnHour)
 		go sv.keepTunnelOpenWorker()
 	}
-
-	if sv.plugin != nil {
-		sv.plugin.Start()
-	}
 	return
 }
 

@@ -28,14 +28,12 @@ import (
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 type Manager struct {
 	proxies            map[string]*Wrapper
 	msgTransporter     transport.MessageTransporter
 	inWorkConnCallback func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
-	vnetController     *vnet.Controller
 
 	closed bool
 	mu     sync.RWMutex
@@ -52,13 +50,11 @@ func NewManager(
 	clientCfg *v1.ClientCommonConfig,
 	encryptionKey []byte,
 	msgTransporter transport.MessageTransporter,
-	vnetController *vnet.Controller,
 	udpPacketCodec string,
 ) *Manager {
 	return &Manager{
 		proxies:        make(map[string]*Wrapper),
 		msgTransporter: msgTransporter,
-		vnetController: vnetController,
 		closed:         false,
 		encryptionKey:  encryptionKey,
 		clientCfg:      clientCfg,
@@ -169,7 +165,7 @@ func (pm *Manager) UpdateAll(proxyCfgs []v1.ProxyConfigurer) {
 	for _, cfg := range proxyCfgs {
 		name := cfg.GetBaseConfig().Name
 		if _, ok := pm.proxies[name]; !ok {
-			pxy := NewWrapper(pm.ctx, cfg, pm.clientCfg, pm.encryptionKey, pm.HandleEvent, pm.msgTransporter, pm.vnetController, pm.udpPacketCodec)
+			pxy := NewWrapper(pm.ctx, cfg, pm.clientCfg, pm.encryptionKey, pm.HandleEvent, pm.msgTransporter, pm.udpPacketCodec)
 			if pm.inWorkConnCallback != nil {
 				pxy.SetInWorkConnCallback(pm.inWorkConnCallback)
 			}

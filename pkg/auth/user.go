@@ -1,4 +1,4 @@
-// Copyright 2023 The frp Authors
+// Copyright 2026 The frp Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,25 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package validation
+package auth
 
-import (
-	"fmt"
-	"slices"
-
-	v1 "github.com/fatedier/frp/pkg/config/v1"
-)
-
-func ValidatePort(port int, fieldPath string) error {
-	if 0 <= port && port <= 65535 {
-		return nil
-	}
-	return fmt.Errorf("%s: port number %d must be in the range 0..65535", fieldPath, port)
-}
-
-func validateLogConfig(c *v1.LogConfig) error {
-	if !slices.Contains(SupportedLogLevels, c.Level) {
-		return fmt.Errorf("invalid log level, optional values are %v", SupportedLogLevels)
-	}
-	return nil
+type UserInfo struct {
+	User  string
+	Metas map[string]string
+	RunID string
 }

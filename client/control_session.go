@@ -32,7 +32,6 @@ import (
 	"github.com/fatedier/frp/pkg/proto/wire"
 	netpkg "github.com/fatedier/frp/pkg/util/net"
 	"github.com/fatedier/frp/pkg/util/version"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 type controlSessionDialer struct {
@@ -41,7 +40,6 @@ type controlSessionDialer struct {
 	common         *v1.ClientCommonConfig
 	auth           *auth.ClientAuth
 	clientSpec     *msg.ClientSpec
-	vnetController *vnet.Controller
 
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 }
@@ -98,7 +96,6 @@ func (d *controlSessionDialer) Dial(previousRunID string) (*SessionContext, erro
 		Conn:           msg.NewConn(conn, msg.NewReadWriter(controlRW, d.common.Transport.WireProtocol)),
 		Auth:           d.auth,
 		Connector:      newMessageConnector(connector, d.common.Transport.WireProtocol),
-		VnetController: d.vnetController,
 		UDPPacketCodec: loginResult.udpPacketCodec,
 	}, nil
 }

@@ -18,21 +18,16 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/fatedier/golib/errors"
-
 	"github.com/fatedier/frp/client/event"
-	"github.com/fatedier/frp/client/health"
 	v1 "github.com/fatedier/frp/pkg/config/v1"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/naming"
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 const (
@@ -67,22 +62,14 @@ type Wrapper struct {
 	// underlying proxy
 	pxy Proxy
 
-	// if ProxyConf has healcheck config
-	// monitor will watch if it is alive
-	monitor *health.Monitor
-
-	// event handler
 	handler event.Handler
 
 	msgTransporter transport.MessageTransporter
-	// vnet controller
-	vnetController *vnet.Controller
 
 	health           uint32
 	lastSendStartMsg time.Time
 	lastStartErr     time.Time
 	closeCh          chan struct{}
-	healthNotifyCh   chan struct{}
 	mu               sync.RWMutex
 
 	xl  *xlog.Logger
@@ -98,7 +85,6 @@ func NewWrapper(
 	encryptionKey []byte,
 	eventHandler event.Handler,
 	msgTransporter transport.MessageTransporter,
-	vnetController *vnet.Controller,
 	udpPacketCodec string,
 ) *Wrapper {
 	baseInfo := cfg.GetBaseConfig()
@@ -111,24 +97,14 @@ func NewWrapper(
 			Cfg:   cfg,
 		},
 		closeCh:        make(chan struct{}),
-		healthNotifyCh: make(chan struct{}),
 		handler:        eventHandler,
 		msgTransporter: msgTransporter,
-		vnetController: vnetController,
 		xl:             xl,
 		ctx:            xlog.NewContext(ctx, xl),
 		wireName:       naming.AddUserPrefix(clientCfg.User, baseInfo.Name),
 	}
 
-	if baseInfo.HealthCheck.Type != "" && baseInfo.LocalPort > 0 {
-		pw.health = 1 // means failed
-		addr := net.JoinHostPort(baseInfo.LocalIP, strconv.Itoa(baseInfo.LocalPort))
-		pw.monitor = health.NewMonitor(pw.ctx, baseInfo.HealthCheck, addr,
-			pw.statusNormalCallback, pw.statusFailedCallback)
-		xl.Tracef("enable health check monitor")
-	}
-
-	pw.pxy = NewProxy(pw.ctx, pw.Cfg, clientCfg, encryptionKey, pw.msgTransporter, pw.vnetController, udpPacketCodec)
+	pw.pxy = NewProxy(pw.ctx, pw.Cfg, clientCfg, encryptionKey, pw.msgTransporter, udpPacketCodec)
 	return pw
 }
 
@@ -166,20 +142,13 @@ func (pw *Wrapper) SetRunningStatus(remoteAddr string, respErr string) error {
 
 func (pw *Wrapper) Start() {
 	go pw.checkWorker()
-	if pw.monitor != nil {
-		go pw.monitor.Start()
-	}
 }
 
 func (pw *Wrapper) Stop() {
 	pw.mu.Lock()
 	defer pw.mu.Unlock()
 	close(pw.closeCh)
-	close(pw.healthNotifyCh)
 	pw.pxy.Close()
-	if pw.monitor != nil {
-		pw.monitor.Stop()
-	}
 	pw.Phase = ProxyPhaseClosed
 	pw.close()
 }
@@ -194,10 +163,6 @@ func (pw *Wrapper) close() {
 
 func (pw *Wrapper) checkWorker() {
 	xl := pw.xl
-	if pw.monitor != nil {
-		// let monitor do check request first
-		time.Sleep(500 * time.Millisecond)
-	}
 	for {
 		// check proxy status
 		now := time.Now()
@@ -234,33 +199,8 @@ func (pw *Wrapper) checkWorker() {
 		case <-pw.closeCh:
 			return
 		case <-time.After(statusCheckInterval):
-		case <-pw.healthNotifyCh:
 		}
 	}
-}
-
-func (pw *Wrapper) statusNormalCallback() {
-	xl := pw.xl
-	atomic.StoreUint32(&pw.health, 0)
-	_ = errors.PanicToError(func() {
-		select {
-		case pw.healthNotifyCh <- struct{}{}:
-		default:
-		}
-	})
-	xl.Infof("health check success")
-}
-
-func (pw *Wrapper) statusFailedCallback() {
-	xl := pw.xl
-	atomic.StoreUint32(&pw.health, 1)
-	_ = errors.PanicToError(func() {
-		select {
-		case pw.healthNotifyCh <- struct{}{}:
-		default:
-		}
-	})
-	xl.Infof("health check failed")
 }
 
 func (pw *Wrapper) InWorkConn(workConn net.Conn, m *msg.StartWorkConn) {

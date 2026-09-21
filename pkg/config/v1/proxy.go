@@ -19,115 +19,28 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/fatedier/frp/pkg/config/types"
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/util/jsonx"
 	"github.com/fatedier/frp/pkg/util/util"
 )
 
 type ProxyTransport struct {
-	// UseEncryption controls whether or not communication with the server will
-	// be encrypted. Encryption is done using the tokens supplied in the server
-	// and client configuration.
-	UseEncryption bool `json:"useEncryption,omitempty"`
-	// UseCompression controls whether or not communication with the server
-	// will be compressed.
+	UseEncryption  bool `json:"useEncryption,omitempty"`
 	UseCompression bool `json:"useCompression,omitempty"`
-	// BandwidthLimit limit the bandwidth
-	// 0 means no limit
-	BandwidthLimit types.BandwidthQuantity `json:"bandwidthLimit,omitempty"`
-	// BandwidthLimitMode specifies whether to limit the bandwidth on the
-	// client or server side. Valid values include "client" and "server".
-	// By default, this value is "client".
-	BandwidthLimitMode string `json:"bandwidthLimitMode,omitempty"`
-	// ProxyProtocolVersion specifies which protocol version to use. Valid
-	// values include "v1", "v2", and "". If the value is "", a protocol
-	// version will be automatically selected. By default, this value is "".
-	ProxyProtocolVersion string `json:"proxyProtocolVersion,omitempty"`
-}
-
-type LoadBalancerConfig struct {
-	// Group specifies which group the is a part of. The server will use
-	// this information to load balance proxies in the same group. If the value
-	// is "", this will not be in a group.
-	Group string `json:"group"`
-	// GroupKey specifies a group key, which should be the same among proxies
-	// of the same group.
-	GroupKey string `json:"groupKey,omitempty"`
 }
 
 type ProxyBackend struct {
-	// LocalIP specifies the IP address or host name of the backend.
-	LocalIP string `json:"localIP,omitempty"`
-	// LocalPort specifies the port of the backend.
-	LocalPort int `json:"localPort,omitempty"`
-
-	// Plugin specifies what plugin should be used for handling connections. If this value
-	// is set, the LocalIP and LocalPort values will be ignored.
-	Plugin TypedClientPluginOptions `json:"plugin,omitempty"`
-}
-
-// HealthCheckConfig configures health checking. This can be useful for load
-// balancing purposes to detect and remove proxies to failing services.
-type HealthCheckConfig struct {
-	// Type specifies what protocol to use for health checking.
-	// Valid values include "tcp", "http", and "". If this value is "", health
-	// checking will not be performed.
-	//
-	// If the type is "tcp", a connection will be attempted to the target
-	// server. If a connection cannot be established, the health check fails.
-	//
-	// If the type is "http", a GET request will be made to the endpoint
-	// specified by HealthCheckURL. If the response is not a 200, the health
-	// check fails.
-	Type string `json:"type"` // tcp | http
-	// TimeoutSeconds specifies the number of seconds to wait for a health
-	// check attempt to connect. If the timeout is reached, this counts as a
-	// health check failure. By default, this value is 3.
-	TimeoutSeconds int `json:"timeoutSeconds,omitempty"`
-	// MaxFailed specifies the number of allowed failures before the
-	// is stopped. By default, this value is 1.
-	MaxFailed int `json:"maxFailed,omitempty"`
-	// IntervalSeconds specifies the time in seconds between health
-	// checks. By default, this value is 10.
-	IntervalSeconds int `json:"intervalSeconds"`
-	// Path specifies the path to send health checks to if the
-	// health check type is "http".
-	Path string `json:"path,omitempty"`
-	// HTTPHeaders specifies the headers to send with the health request, if
-	// the health check type is "http".
-	HTTPHeaders []HTTPHeader `json:"httpHeaders,omitempty"`
-}
-
-func (c HealthCheckConfig) Clone() HealthCheckConfig {
-	out := c
-	out.HTTPHeaders = slices.Clone(c.HTTPHeaders)
-	return out
-}
-
-type DomainConfig struct {
-	CustomDomains []string `json:"customDomains,omitempty"`
-	SubDomain     string   `json:"subdomain,omitempty"`
-}
-
-func (c DomainConfig) Clone() DomainConfig {
-	out := c
-	out.CustomDomains = slices.Clone(c.CustomDomains)
-	return out
+	LocalIP   string `json:"localIP,omitempty"`
+	LocalPort int    `json:"localPort,omitempty"`
 }
 
 type ProxyBaseConfig struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	// Enabled controls whether this proxy is enabled. nil or true means enabled, false means disabled.
-	// This allows individual control over each proxy, complementing the global "start" field.
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
 	Enabled     *bool             `json:"enabled,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 	Transport   ProxyTransport    `json:"transport,omitempty"`
-	// metadata info for each proxy
-	Metadatas    map[string]string  `json:"metadatas,omitempty"`
-	LoadBalancer LoadBalancerConfig `json:"loadBalancer,omitempty"`
-	HealthCheck  HealthCheckConfig  `json:"healthCheck,omitempty"`
+	Metadatas   map[string]string `json:"metadatas,omitempty"`
 	ProxyBackend
 }
 
@@ -136,14 +49,6 @@ func (c ProxyBaseConfig) Clone() ProxyBaseConfig {
 	out.Enabled = util.ClonePtr(c.Enabled)
 	out.Annotations = maps.Clone(c.Annotations)
 	out.Metadatas = maps.Clone(c.Metadatas)
-	out.HealthCheck = c.HealthCheck.Clone()
-	out.ProxyBackend = c.ProxyBackend.Clone()
-	return out
-}
-
-func (c ProxyBackend) Clone() ProxyBackend {
-	out := c
-	out.Plugin = c.Plugin.Clone()
 	return out
 }
 
@@ -153,11 +58,6 @@ func (c *ProxyBaseConfig) GetBaseConfig() *ProxyBaseConfig {
 
 func (c *ProxyBaseConfig) Complete() {
 	c.LocalIP = util.EmptyOr(c.LocalIP, "127.0.0.1")
-	c.Transport.BandwidthLimitMode = util.EmptyOr(c.Transport.BandwidthLimitMode, types.BandwidthLimitModeClient)
-
-	if c.Plugin.ClientPluginOptions != nil {
-		c.Plugin.Complete()
-	}
 }
 
 func (c *ProxyBaseConfig) MarshalToMsg(m *msg.NewProxy) {
@@ -165,13 +65,6 @@ func (c *ProxyBaseConfig) MarshalToMsg(m *msg.NewProxy) {
 	m.ProxyType = c.Type
 	m.UseEncryption = c.Transport.UseEncryption
 	m.UseCompression = c.Transport.UseCompression
-	m.BandwidthLimit = c.Transport.BandwidthLimit.String()
-	// leave it empty for default value to reduce traffic
-	if c.Transport.BandwidthLimitMode != "client" {
-		m.BandwidthLimitMode = c.Transport.BandwidthLimitMode
-	}
-	m.Group = c.LoadBalancer.Group
-	m.GroupKey = c.LoadBalancer.GroupKey
 	m.Metas = c.Metadatas
 	m.Annotations = c.Annotations
 }
@@ -181,14 +74,6 @@ func (c *ProxyBaseConfig) UnmarshalFromMsg(m *msg.NewProxy) {
 	c.Type = m.ProxyType
 	c.Transport.UseEncryption = m.UseEncryption
 	c.Transport.UseCompression = m.UseCompression
-	if m.BandwidthLimit != "" {
-		c.Transport.BandwidthLimit, _ = types.NewBandwidthQuantity(m.BandwidthLimit)
-	}
-	if m.BandwidthLimitMode != "" {
-		c.Transport.BandwidthLimitMode = m.BandwidthLimitMode
-	}
-	c.LoadBalancer.Group = m.Group
-	c.LoadBalancer.GroupKey = m.GroupKey
 	c.Metadatas = m.Metas
 	c.Annotations = m.Annotations
 }
@@ -217,36 +102,18 @@ type ProxyConfigurer interface {
 	Complete()
 	GetBaseConfig() *ProxyBaseConfig
 	Clone() ProxyConfigurer
-	// MarshalToMsg marshals this config into a msg.NewProxy message. This
-	// function will be called on the frpc side.
 	MarshalToMsg(*msg.NewProxy)
-	// UnmarshalFromMsg unmarshal a msg.NewProxy message into this config.
-	// This function will be called on the frps side.
 	UnmarshalFromMsg(*msg.NewProxy)
 }
 
 type ProxyType string
 
 const (
-	ProxyTypeTCP    ProxyType = "tcp"
-	ProxyTypeUDP    ProxyType = "udp"
-	ProxyTypeTCPMUX ProxyType = "tcpmux"
-	ProxyTypeHTTP   ProxyType = "http"
-	ProxyTypeHTTPS  ProxyType = "https"
-	ProxyTypeSTCP   ProxyType = "stcp"
-	ProxyTypeXTCP   ProxyType = "xtcp"
-	ProxyTypeSUDP   ProxyType = "sudp"
+	ProxyTypeXTCP ProxyType = "xtcp"
 )
 
 var proxyConfigTypeMap = map[ProxyType]reflect.Type{
-	ProxyTypeTCP:    reflect.TypeFor[TCPProxyConfig](),
-	ProxyTypeUDP:    reflect.TypeFor[UDPProxyConfig](),
-	ProxyTypeHTTP:   reflect.TypeFor[HTTPProxyConfig](),
-	ProxyTypeHTTPS:  reflect.TypeFor[HTTPSProxyConfig](),
-	ProxyTypeTCPMUX: reflect.TypeFor[TCPMuxProxyConfig](),
-	ProxyTypeSTCP:   reflect.TypeFor[STCPProxyConfig](),
-	ProxyTypeXTCP:   reflect.TypeFor[XTCPProxyConfig](),
-	ProxyTypeSUDP:   reflect.TypeFor[SUDPProxyConfig](),
+	ProxyTypeXTCP: reflect.TypeFor[XTCPProxyConfig](),
 }
 
 func NewProxyConfigurerByType(proxyType ProxyType) ProxyConfigurer {
@@ -259,216 +126,6 @@ func NewProxyConfigurerByType(proxyType ProxyType) ProxyConfigurer {
 	return pc
 }
 
-var _ ProxyConfigurer = &TCPProxyConfig{}
-
-type TCPProxyConfig struct {
-	ProxyBaseConfig
-
-	RemotePort int `json:"remotePort,omitempty"`
-}
-
-func (c *TCPProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.RemotePort = c.RemotePort
-}
-
-func (c *TCPProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.RemotePort = m.RemotePort
-}
-
-func (c *TCPProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	return &out
-}
-
-var _ ProxyConfigurer = &UDPProxyConfig{}
-
-type UDPProxyConfig struct {
-	ProxyBaseConfig
-
-	RemotePort int `json:"remotePort,omitempty"`
-}
-
-func (c *UDPProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.RemotePort = c.RemotePort
-}
-
-func (c *UDPProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.RemotePort = m.RemotePort
-}
-
-func (c *UDPProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	return &out
-}
-
-var _ ProxyConfigurer = &HTTPProxyConfig{}
-
-type HTTPProxyConfig struct {
-	ProxyBaseConfig
-	DomainConfig
-
-	Locations         []string         `json:"locations,omitempty"`
-	HTTPUser          string           `json:"httpUser,omitempty"`
-	HTTPPassword      string           `json:"httpPassword,omitempty"`
-	HostHeaderRewrite string           `json:"hostHeaderRewrite,omitempty"`
-	RequestHeaders    HeaderOperations `json:"requestHeaders,omitempty"`
-	ResponseHeaders   HeaderOperations `json:"responseHeaders,omitempty"`
-	RouteByHTTPUser   string           `json:"routeByHTTPUser,omitempty"`
-}
-
-func (c *HTTPProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.CustomDomains = c.CustomDomains
-	m.SubDomain = c.SubDomain
-	m.Locations = c.Locations
-	m.HostHeaderRewrite = c.HostHeaderRewrite
-	m.HTTPUser = c.HTTPUser
-	m.HTTPPwd = c.HTTPPassword
-	m.Headers = c.RequestHeaders.Set
-	m.ResponseHeaders = c.ResponseHeaders.Set
-	m.RouteByHTTPUser = c.RouteByHTTPUser
-}
-
-func (c *HTTPProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.CustomDomains = m.CustomDomains
-	c.SubDomain = m.SubDomain
-	c.Locations = m.Locations
-	c.HostHeaderRewrite = m.HostHeaderRewrite
-	c.HTTPUser = m.HTTPUser
-	c.HTTPPassword = m.HTTPPwd
-	c.RequestHeaders.Set = m.Headers
-	c.ResponseHeaders.Set = m.ResponseHeaders
-	c.RouteByHTTPUser = m.RouteByHTTPUser
-}
-
-func (c *HTTPProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	out.DomainConfig = c.DomainConfig.Clone()
-	out.Locations = slices.Clone(c.Locations)
-	out.RequestHeaders = c.RequestHeaders.Clone()
-	out.ResponseHeaders = c.ResponseHeaders.Clone()
-	return &out
-}
-
-var _ ProxyConfigurer = &HTTPSProxyConfig{}
-
-type HTTPSProxyConfig struct {
-	ProxyBaseConfig
-	DomainConfig
-}
-
-func (c *HTTPSProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.CustomDomains = c.CustomDomains
-	m.SubDomain = c.SubDomain
-}
-
-func (c *HTTPSProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.CustomDomains = m.CustomDomains
-	c.SubDomain = m.SubDomain
-}
-
-func (c *HTTPSProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	out.DomainConfig = c.DomainConfig.Clone()
-	return &out
-}
-
-type TCPMultiplexerType string
-
-const (
-	TCPMultiplexerHTTPConnect TCPMultiplexerType = "httpconnect"
-)
-
-var _ ProxyConfigurer = &TCPMuxProxyConfig{}
-
-type TCPMuxProxyConfig struct {
-	ProxyBaseConfig
-	DomainConfig
-
-	HTTPUser        string `json:"httpUser,omitempty"`
-	HTTPPassword    string `json:"httpPassword,omitempty"`
-	RouteByHTTPUser string `json:"routeByHTTPUser,omitempty"`
-	Multiplexer     string `json:"multiplexer,omitempty"`
-}
-
-func (c *TCPMuxProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.CustomDomains = c.CustomDomains
-	m.SubDomain = c.SubDomain
-	m.Multiplexer = c.Multiplexer
-	m.HTTPUser = c.HTTPUser
-	m.HTTPPwd = c.HTTPPassword
-	m.RouteByHTTPUser = c.RouteByHTTPUser
-}
-
-func (c *TCPMuxProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.CustomDomains = m.CustomDomains
-	c.SubDomain = m.SubDomain
-	c.Multiplexer = m.Multiplexer
-	c.HTTPUser = m.HTTPUser
-	c.HTTPPassword = m.HTTPPwd
-	c.RouteByHTTPUser = m.RouteByHTTPUser
-}
-
-func (c *TCPMuxProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	out.DomainConfig = c.DomainConfig.Clone()
-	return &out
-}
-
-var _ ProxyConfigurer = &STCPProxyConfig{}
-
-type STCPProxyConfig struct {
-	ProxyBaseConfig
-
-	Secretkey  string   `json:"secretKey,omitempty"`
-	AllowUsers []string `json:"allowUsers,omitempty"`
-}
-
-func (c *STCPProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.Sk = c.Secretkey
-	m.AllowUsers = c.AllowUsers
-}
-
-func (c *STCPProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.Secretkey = m.Sk
-	c.AllowUsers = m.AllowUsers
-}
-
-func (c *STCPProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	out.AllowUsers = slices.Clone(c.AllowUsers)
-	return &out
-}
-
 var _ ProxyConfigurer = &XTCPProxyConfig{}
 
 type XTCPProxyConfig struct {
@@ -477,20 +134,17 @@ type XTCPProxyConfig struct {
 	Secretkey  string   `json:"secretKey,omitempty"`
 	AllowUsers []string `json:"allowUsers,omitempty"`
 
-	// NatTraversal configuration for NAT traversal
 	NatTraversal *NatTraversalConfig `json:"natTraversal,omitempty"`
 }
 
 func (c *XTCPProxyConfig) MarshalToMsg(m *msg.NewProxy) {
 	c.ProxyBaseConfig.MarshalToMsg(m)
-
 	m.Sk = c.Secretkey
 	m.AllowUsers = c.AllowUsers
 }
 
 func (c *XTCPProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
 	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
 	c.Secretkey = m.Sk
 	c.AllowUsers = m.AllowUsers
 }
@@ -500,35 +154,5 @@ func (c *XTCPProxyConfig) Clone() ProxyConfigurer {
 	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
 	out.AllowUsers = slices.Clone(c.AllowUsers)
 	out.NatTraversal = c.NatTraversal.Clone()
-	return &out
-}
-
-var _ ProxyConfigurer = &SUDPProxyConfig{}
-
-type SUDPProxyConfig struct {
-	ProxyBaseConfig
-
-	Secretkey  string   `json:"secretKey,omitempty"`
-	AllowUsers []string `json:"allowUsers,omitempty"`
-}
-
-func (c *SUDPProxyConfig) MarshalToMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.MarshalToMsg(m)
-
-	m.Sk = c.Secretkey
-	m.AllowUsers = c.AllowUsers
-}
-
-func (c *SUDPProxyConfig) UnmarshalFromMsg(m *msg.NewProxy) {
-	c.ProxyBaseConfig.UnmarshalFromMsg(m)
-
-	c.Secretkey = m.Sk
-	c.AllowUsers = m.AllowUsers
-}
-
-func (c *SUDPProxyConfig) Clone() ProxyConfigurer {
-	out := *c
-	out.ProxyBaseConfig = c.ProxyBaseConfig.Clone()
-	out.AllowUsers = slices.Clone(c.AllowUsers)
 	return &out
 }

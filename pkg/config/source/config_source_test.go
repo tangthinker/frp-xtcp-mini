@@ -63,7 +63,7 @@ func TestConfigSource_ReplaceAll(t *testing.T) {
 	require.Error(err)
 
 	// ReplaceAll with empty name proxy should fail
-	err = src.ReplaceAll([]v1.ProxyConfigurer{&v1.TCPProxyConfig{}}, nil)
+	err = src.ReplaceAll([]v1.ProxyConfigurer{&v1.XTCPProxyConfig{}}, nil)
 	require.Error(err)
 }
 
@@ -98,24 +98,24 @@ func TestConfigSource_Load_FiltersDisabled(t *testing.T) {
 	enabledProxy := mockProxy("enabled-proxy")
 
 	// Create disabled proxy
-	disabledProxy := &v1.TCPProxyConfig{}
+	disabledProxy := &v1.XTCPProxyConfig{}
 	disabledProxy.Name = "disabled-proxy"
-	disabledProxy.Type = "tcp"
+	disabledProxy.Type = "xtcp"
 	disabledProxy.Enabled = &disabled
 
 	// Create explicitly enabled proxy
-	explicitEnabledProxy := &v1.TCPProxyConfig{}
+	explicitEnabledProxy := &v1.XTCPProxyConfig{}
 	explicitEnabledProxy.Name = "explicit-enabled-proxy"
-	explicitEnabledProxy.Type = "tcp"
+	explicitEnabledProxy.Type = "xtcp"
 	explicitEnabledProxy.Enabled = &enabled
 
 	// Create enabled visitor (nil Enabled = enabled by default)
 	enabledVisitor := mockVisitor("enabled-visitor")
 
 	// Create disabled visitor
-	disabledVisitor := &v1.STCPVisitorConfig{}
+	disabledVisitor := &v1.XTCPVisitorConfig{}
 	disabledVisitor.Name = "disabled-visitor"
-	disabledVisitor.Type = "stcp"
+	disabledVisitor.Type = "xtcp"
 	disabledVisitor.Enabled = &disabled
 
 	err := src.ReplaceAll(
@@ -148,9 +148,9 @@ func TestConfigSource_ReplaceAll_DoesNotApplyRuntimeDefaults(t *testing.T) {
 
 	src := NewConfigSource()
 
-	proxyCfg := &v1.TCPProxyConfig{}
+	proxyCfg := &v1.XTCPProxyConfig{}
 	proxyCfg.Name = "proxy1"
-	proxyCfg.Type = "tcp"
+	proxyCfg.Type = "xtcp"
 	proxyCfg.LocalPort = 10080
 
 	visitorCfg := &v1.XTCPVisitorConfig{}

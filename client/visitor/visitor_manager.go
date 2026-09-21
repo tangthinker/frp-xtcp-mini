@@ -28,7 +28,6 @@ import (
 	"github.com/fatedier/frp/pkg/msg"
 	"github.com/fatedier/frp/pkg/transport"
 	"github.com/fatedier/frp/pkg/util/xlog"
-	"github.com/fatedier/frp/pkg/vnet"
 )
 
 type Manager struct {
@@ -52,7 +51,6 @@ func NewManager(
 	clientCfg *v1.ClientCommonConfig,
 	connectServer func() (*msg.Conn, error),
 	msgTransporter transport.MessageTransporter,
-	vnetController *vnet.Controller,
 	udpPacketCodecs ...string,
 ) *Manager {
 	udpPacketCodec := ""
@@ -70,7 +68,6 @@ func NewManager(
 	m.helper = &visitorHelperImpl{
 		connectServerFn: connectServer,
 		msgTransporter:  msgTransporter,
-		vnetController:  vnetController,
 		transferConnFn:  m.TransferConn,
 		runID:           runID,
 		udpPacketCodec:  udpPacketCodec,
@@ -208,7 +205,6 @@ func (vm *Manager) GetVisitorCfg(name string) (v1.VisitorConfigurer, bool) {
 type visitorHelperImpl struct {
 	connectServerFn func() (*msg.Conn, error)
 	msgTransporter  transport.MessageTransporter
-	vnetController  *vnet.Controller
 	transferConnFn  func(name string, conn net.Conn) error
 	runID           string
 	udpPacketCodec  string
@@ -224,10 +220,6 @@ func (v *visitorHelperImpl) TransferConn(name string, conn net.Conn) error {
 
 func (v *visitorHelperImpl) MsgTransporter() transport.MessageTransporter {
 	return v.msgTransporter
-}
-
-func (v *visitorHelperImpl) VNetController() *vnet.Controller {
-	return v.vnetController
 }
 
 func (v *visitorHelperImpl) RunID() string {

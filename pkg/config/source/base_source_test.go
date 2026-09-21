@@ -13,16 +13,16 @@ func TestBaseSourceLoadReturnsClonedConfigurers(t *testing.T) {
 
 	src := NewConfigSource()
 
-	proxyCfg := &v1.TCPProxyConfig{
+	proxyCfg := &v1.XTCPProxyConfig{
 		ProxyBaseConfig: v1.ProxyBaseConfig{
 			Name: "proxy1",
-			Type: "tcp",
+			Type: "xtcp",
 		},
 	}
-	visitorCfg := &v1.STCPVisitorConfig{
+	visitorCfg := &v1.XTCPVisitorConfig{
 		VisitorBaseConfig: v1.VisitorBaseConfig{
 			Name: "visitor1",
-			Type: "stcp",
+			Type: "xtcp",
 		},
 	}
 

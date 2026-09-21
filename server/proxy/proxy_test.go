@@ -35,7 +35,7 @@ func TestWorkConnStartWritesStartWorkConn(t *testing.T) {
 	clientMsgConn := msg.NewConn(client, msg.NewV2ReadWriter(client))
 	workConn := NewWorkConn(serverMsgConn)
 
-	in := &msg.StartWorkConn{ProxyName: "tcp", SrcAddr: "127.0.0.1", SrcPort: 1234}
+	in := &msg.StartWorkConn{ProxyName: "xtcp", SrcAddr: "127.0.0.1", SrcPort: 1234}
 	type startResult struct {
 		conn net.Conn
 		err  error
@@ -55,20 +55,12 @@ func TestWorkConnStartWritesStartWorkConn(t *testing.T) {
 	require.Same(t, serverMsgConn, result.conn)
 }
 
-func TestGetWorkConnFromPoolStartWorkConnUnchangedForUDPWireV2(t *testing.T) {
-	startMsg := getStartWorkConnFromPool(t, &v1.UDPProxyConfig{
-		ProxyBaseConfig: v1.ProxyBaseConfig{Name: "udp", Type: string(v1.ProxyTypeUDP)},
-	}, wire.ProtocolV2)
-
-	require.Equal(t, msg.StartWorkConn{ProxyName: "udp"}, startMsg)
-}
-
 func TestGetWorkConnFromPoolLeavesRawTCPPayloadUnframed(t *testing.T) {
-	startMsg := getStartWorkConnFromPool(t, &v1.TCPProxyConfig{
-		ProxyBaseConfig: v1.ProxyBaseConfig{Name: "tcp", Type: string(v1.ProxyTypeTCP)},
+	startMsg := getStartWorkConnFromPool(t, &v1.XTCPProxyConfig{
+		ProxyBaseConfig: v1.ProxyBaseConfig{Name: "xtcp", Type: string(v1.ProxyTypeXTCP)},
 	}, wire.ProtocolV2)
 
-	require.Equal(t, msg.StartWorkConn{ProxyName: "tcp"}, startMsg)
+	require.Equal(t, msg.StartWorkConn{ProxyName: "xtcp"}, startMsg)
 }
 
 func getStartWorkConnFromPool(t *testing.T, cfg v1.ProxyConfigurer, wireProtocol string) msg.StartWorkConn {

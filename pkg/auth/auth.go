@@ -37,8 +37,6 @@ func (a *ClientAuth) EncryptionKey() []byte {
 	return a.key
 }
 
-// BuildClientAuth resolves any dynamic auth values and returns a prepared auth runtime.
-// Caller must run validation before calling this function.
 func BuildClientAuth(cfg *v1.AuthClientConfig) (*ClientAuth, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("auth config is nil")
@@ -65,15 +63,6 @@ func NewAuthSetter(cfg v1.AuthClientConfig) (authProvider Setter, err error) {
 	switch cfg.Method {
 	case v1.AuthMethodToken:
 		authProvider = NewTokenAuth(cfg.AdditionalScopes, cfg.Token)
-	case v1.AuthMethodOIDC:
-		if cfg.OIDC.TokenSource != nil {
-			authProvider = NewOidcTokenSourceAuthSetter(cfg.AdditionalScopes, cfg.OIDC.TokenSource)
-		} else {
-			authProvider, err = NewOidcAuthSetter(cfg.AdditionalScopes, cfg.OIDC)
-			if err != nil {
-				return nil, err
-			}
-		}
 	default:
 		return nil, fmt.Errorf("unsupported auth method: %s", cfg.Method)
 	}
@@ -95,8 +84,6 @@ func (a *ServerAuth) EncryptionKey() []byte {
 	return a.key
 }
 
-// BuildServerAuth resolves any dynamic auth values and returns a prepared auth runtime.
-// Caller must run validation before calling this function.
 func BuildServerAuth(cfg *v1.AuthServerConfig) (*ServerAuth, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("auth config is nil")
@@ -115,13 +102,6 @@ func BuildServerAuth(cfg *v1.AuthServerConfig) (*ServerAuth, error) {
 	}, nil
 }
 
-func NewAuthVerifier(cfg v1.AuthServerConfig) (authVerifier Verifier) {
-	switch cfg.Method {
-	case v1.AuthMethodToken:
-		authVerifier = NewTokenAuth(cfg.AdditionalScopes, cfg.Token)
-	case v1.AuthMethodOIDC:
-		tokenVerifier := NewTokenVerifier(cfg.OIDC)
-		authVerifier = NewOidcAuthVerifier(cfg.AdditionalScopes, tokenVerifier)
-	}
-	return authVerifier
+func NewAuthVerifier(cfg v1.AuthServerConfig) Verifier {
+	return NewTokenAuth(cfg.AdditionalScopes, cfg.Token)
 }

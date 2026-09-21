@@ -29,25 +29,20 @@ func ValidateVisitorConfigurer(c v1.VisitorConfigurer) error {
 	}
 
 	switch v := c.(type) {
-	case *v1.STCPVisitorConfig:
-	case *v1.SUDPVisitorConfig:
 	case *v1.XTCPVisitorConfig:
 		return validateXTCPVisitorConfig(v)
 	default:
 		return errors.New("unknown visitor config type")
 	}
-	return nil
 }
 
 func validateVisitorBaseConfig(c *v1.VisitorBaseConfig) error {
 	if c.Name == "" {
 		return errors.New("name is required")
 	}
-
 	if c.ServerName == "" {
 		return errors.New("server name is required")
 	}
-
 	if c.BindPort == 0 {
 		return errors.New("bind port is required")
 	}

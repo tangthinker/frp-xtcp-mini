@@ -33,9 +33,9 @@ func TestStoreSource_AddProxyAndVisitor_DoesNotApplyRuntimeDefaults(t *testing.T
 	storeSource, err := NewStoreSource(StoreSourceConfig{Path: path})
 	require.NoError(err)
 
-	proxyCfg := &v1.TCPProxyConfig{}
+	proxyCfg := &v1.XTCPProxyConfig{}
 	proxyCfg.Name = "proxy1"
-	proxyCfg.Type = "tcp"
+	proxyCfg.Type = "xtcp"
 	proxyCfg.LocalPort = 10080
 
 	visitorCfg := &v1.XTCPVisitorConfig{}
@@ -75,15 +75,15 @@ func TestStoreSource_UpdateAndRemoveProxyAndVisitor(t *testing.T) {
 	require.ErrorContains(storeSource.RemoveProxy(""), "proxy name cannot be empty")
 	require.ErrorContains(storeSource.RemoveVisitor(""), "visitor name cannot be empty")
 
-	updatedProxy := mockProxy("proxy1").(*v1.TCPProxyConfig)
-	updatedProxy.RemotePort = 19090
+	updatedProxy := mockProxy("proxy1").(*v1.XTCPProxyConfig)
+	updatedProxy.LocalPort = 19090
 	require.NoError(storeSource.UpdateProxy(updatedProxy))
-	require.Equal(19090, storeSource.GetProxy("proxy1").(*v1.TCPProxyConfig).RemotePort)
+	require.Equal(19090, storeSource.GetProxy("proxy1").(*v1.XTCPProxyConfig).LocalPort)
 
-	updatedVisitor := mockVisitor("visitor1").(*v1.STCPVisitorConfig)
+	updatedVisitor := mockVisitor("visitor1").(*v1.XTCPVisitorConfig)
 	updatedVisitor.ServerName = "updated-server"
 	require.NoError(storeSource.UpdateVisitor(updatedVisitor))
-	require.Equal("updated-server", storeSource.GetVisitor("visitor1").(*v1.STCPVisitorConfig).ServerName)
+	require.Equal("updated-server", storeSource.GetVisitor("visitor1").(*v1.XTCPVisitorConfig).ServerName)
 
 	require.NoError(storeSource.RemoveProxy("proxy1"))
 	require.Nil(storeSource.GetProxy("proxy1"))
@@ -114,8 +114,8 @@ func TestStoreSource_MutationRollsBackOnPersistFailure(t *testing.T) {
 
 	proxyCfg := mockProxy("proxy1")
 	visitorCfg := mockVisitor("visitor1")
-	originalRemotePort := proxyCfg.(*v1.TCPProxyConfig).RemotePort
-	originalServerName := visitorCfg.(*v1.STCPVisitorConfig).ServerName
+	originalLocalPort := proxyCfg.(*v1.XTCPProxyConfig).LocalPort
+	originalServerName := visitorCfg.(*v1.XTCPVisitorConfig).ServerName
 	require.NoError(storeSource.AddProxy(proxyCfg))
 	require.NoError(storeSource.AddVisitor(visitorCfg))
 
@@ -135,10 +135,10 @@ func TestStoreSource_MutationRollsBackOnPersistFailure(t *testing.T) {
 	requirePersistError(storeSource.AddProxy(mockProxy("proxy2")))
 	require.Nil(storeSource.GetProxy("proxy2"))
 
-	updatedProxy := mockProxy("proxy1").(*v1.TCPProxyConfig)
-	updatedProxy.RemotePort = 19090
+	updatedProxy := mockProxy("proxy1").(*v1.XTCPProxyConfig)
+	updatedProxy.LocalPort = 19090
 	requirePersistError(storeSource.UpdateProxy(updatedProxy))
-	require.Equal(originalRemotePort, storeSource.GetProxy("proxy1").(*v1.TCPProxyConfig).RemotePort)
+	require.Equal(originalLocalPort, storeSource.GetProxy("proxy1").(*v1.XTCPProxyConfig).LocalPort)
 
 	requirePersistError(storeSource.RemoveProxy("proxy1"))
 	require.NotNil(storeSource.GetProxy("proxy1"))
@@ -146,10 +146,10 @@ func TestStoreSource_MutationRollsBackOnPersistFailure(t *testing.T) {
 	requirePersistError(storeSource.AddVisitor(mockVisitor("visitor2")))
 	require.Nil(storeSource.GetVisitor("visitor2"))
 
-	updatedVisitor := mockVisitor("visitor1").(*v1.STCPVisitorConfig)
+	updatedVisitor := mockVisitor("visitor1").(*v1.XTCPVisitorConfig)
 	updatedVisitor.ServerName = "updated-server"
 	requirePersistError(storeSource.UpdateVisitor(updatedVisitor))
-	require.Equal(originalServerName, storeSource.GetVisitor("visitor1").(*v1.STCPVisitorConfig).ServerName)
+	require.Equal(originalServerName, storeSource.GetVisitor("visitor1").(*v1.XTCPVisitorConfig).ServerName)
 
 	requirePersistError(storeSource.RemoveVisitor("visitor1"))
 	require.NotNil(storeSource.GetVisitor("visitor1"))
@@ -160,9 +160,9 @@ func TestStoreSource_LoadFromFile_DoesNotApplyRuntimeDefaults(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "store.json")
 
-	proxyCfg := &v1.TCPProxyConfig{}
+	proxyCfg := &v1.XTCPProxyConfig{}
 	proxyCfg.Name = "proxy1"
-	proxyCfg.Type = "tcp"
+	proxyCfg.Type = "xtcp"
 	proxyCfg.LocalPort = 10080
 
 	visitorCfg := &v1.XTCPVisitorConfig{}
@@ -200,7 +200,7 @@ func TestStoreSource_LoadFromFile_UnknownFieldsAreIgnored(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "store.json")
 	raw := []byte(`{
 		"proxies": [
-			{"name":"proxy1","type":"tcp","localPort":10080,"unexpected":"value"}
+			{"name":"proxy1","type":"xtcp","localPort":10080,"unexpected":"value"}
 		],
 		"visitors": [
 			{"name":"visitor1","type":"xtcp","serverName":"server1","secretKey":"secret","bindPort":10081,"unexpected":"value"}

@@ -19,13 +19,11 @@ import (
 	"crypto/tls"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	libnet "github.com/fatedier/golib/net"
 	fmux "github.com/hashicorp/yamux"
-	quic "github.com/quic-go/quic-go"
 	"github.com/samber/lo"
 
 	v1 "github.com/fatedier/frp/pkg/config/v1"
@@ -82,7 +80,6 @@ type defaultConnectorImpl struct {
 	cfg *v1.ClientCommonConfig
 
 	muxSession *fmux.Session
-	quicConn   *quic.Conn
 	closeOnce  sync.Once
 }
 
@@ -93,51 +90,11 @@ func NewConnector(ctx context.Context, cfg *v1.ClientCommonConfig) Connector {
 	}
 }
 
-// Open opens an underlying connection to the server.
-// The underlying connection is either a TCP connection or a QUIC connection.
+// Open opens an underlying TCP connection to the server.
 // After the underlying connection is established, you can call Connect() to get a stream.
 // If TCPMux isn't enabled, the underlying connection is nil, you will get a new real TCP connection every time you call Connect().
 func (c *defaultConnectorImpl) Open() error {
 	xl := xlog.FromContextSafe(c.ctx)
-
-	// special for quic
-	if strings.EqualFold(c.cfg.Transport.Protocol, "quic") {
-		var tlsConfig *tls.Config
-		var err error
-		sn := c.cfg.Transport.TLS.ServerName
-		if sn == "" {
-			sn = c.cfg.ServerAddr
-		}
-		if lo.FromPtr(c.cfg.Transport.TLS.Enable) {
-			tlsConfig, err = transport.NewClientTLSConfig(
-				c.cfg.Transport.TLS.CertFile,
-				c.cfg.Transport.TLS.KeyFile,
-				c.cfg.Transport.TLS.TrustedCaFile,
-				sn)
-		} else {
-			tlsConfig, err = transport.NewClientTLSConfig("", "", "", sn)
-		}
-		if err != nil {
-			xl.Warnf("fail to build tls configuration, err: %v", err)
-			return err
-		}
-		tlsConfig.NextProtos = []string{"frp"}
-
-		conn, err := quic.DialAddr(
-			c.ctx,
-			net.JoinHostPort(c.cfg.ServerAddr, strconv.Itoa(c.cfg.ServerPort)),
-			tlsConfig, &quic.Config{
-				MaxIdleTimeout:     time.Duration(c.cfg.Transport.QUIC.MaxIdleTimeout) * time.Second,
-				MaxIncomingStreams: int64(c.cfg.Transport.QUIC.MaxIncomingStreams),
-				KeepAlivePeriod:    time.Duration(c.cfg.Transport.QUIC.KeepalivePeriod) * time.Second,
-			})
-		if err != nil {
-			return err
-		}
-		c.quicConn = conn
-		return nil
-	}
-
 	if !lo.FromPtr(c.cfg.Transport.TCPMux) {
 		return nil
 	}
@@ -163,13 +120,7 @@ func (c *defaultConnectorImpl) Open() error {
 
 // Connect returns a stream from the underlying connection, or a new TCP connection if TCPMux isn't enabled.
 func (c *defaultConnectorImpl) Connect() (net.Conn, error) {
-	if c.quicConn != nil {
-		stream, err := c.quicConn.OpenStreamSync(context.Background())
-		if err != nil {
-			return nil, err
-		}
-		return netpkg.QuicStreamToNetConn(stream, c.quicConn), nil
-	} else if c.muxSession != nil {
+	if c.muxSession != nil {
 		stream, err := c.muxSession.OpenStream()
 		if err != nil {
 			return nil, err
@@ -185,9 +136,6 @@ func (c *defaultConnectorImpl) realConnect() (net.Conn, error) {
 	var tlsConfig *tls.Config
 	var err error
 	tlsEnable := lo.FromPtr(c.cfg.Transport.TLS.Enable)
-	if c.cfg.Transport.Protocol == "wss" {
-		tlsEnable = true
-	}
 	if tlsEnable {
 		sn := c.cfg.Transport.TLS.ServerName
 		if sn == "" {
@@ -210,26 +158,15 @@ func (c *defaultConnectorImpl) realConnect() (net.Conn, error) {
 		xl.Errorf("fail to parse proxy url")
 		return nil, err
 	}
-	dialOptions := []libnet.DialOption{}
+	dialOptions := []libnet.DialOption{
+		libnet.WithAfterHook(libnet.AfterHook{
+			Hook: netpkg.DialHookCustomTLSHeadByte(tlsConfig != nil, lo.FromPtr(c.cfg.Transport.TLS.DisableCustomTLSFirstByte)),
+		}),
+		libnet.WithTLSConfig(tlsConfig),
+	}
 	protocol := c.cfg.Transport.Protocol
-	switch protocol {
-	case "websocket":
+	if protocol == "" {
 		protocol = "tcp"
-		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{Hook: netpkg.DialHookWebsocket(protocol, "")}))
-		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{
-			Hook: netpkg.DialHookCustomTLSHeadByte(tlsConfig != nil, lo.FromPtr(c.cfg.Transport.TLS.DisableCustomTLSFirstByte)),
-		}))
-		dialOptions = append(dialOptions, libnet.WithTLSConfig(tlsConfig))
-	case "wss":
-		protocol = "tcp"
-		dialOptions = append(dialOptions, libnet.WithTLSConfigAndPriority(100, tlsConfig))
-		// Make sure that if it is wss, the websocket hook is executed after the tls hook.
-		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{Hook: netpkg.DialHookWebsocket(protocol, tlsConfig.ServerName), Priority: 110}))
-	default:
-		dialOptions = append(dialOptions, libnet.WithAfterHook(libnet.AfterHook{
-			Hook: netpkg.DialHookCustomTLSHeadByte(tlsConfig != nil, lo.FromPtr(c.cfg.Transport.TLS.DisableCustomTLSFirstByte)),
-		}))
-		dialOptions = append(dialOptions, libnet.WithTLSConfig(tlsConfig))
 	}
 
 	if c.cfg.Transport.ConnectServerLocalIP != "" {
@@ -252,9 +189,6 @@ func (c *defaultConnectorImpl) realConnect() (net.Conn, error) {
 
 func (c *defaultConnectorImpl) Close() error {
 	c.closeOnce.Do(func() {
-		if c.quicConn != nil {
-			_ = c.quicConn.CloseWithError(0, "")
-		}
 		if c.muxSession != nil {
 			_ = c.muxSession.Close()
 		}

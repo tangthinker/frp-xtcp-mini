@@ -8,6 +8,7 @@ import (
 
 	"github.com/fatedier/frp/test/e2e/framework"
 	"github.com/fatedier/frp/test/e2e/framework/consts"
+	"github.com/fatedier/frp/test/e2e/mock/server/stunserver"
 	"github.com/fatedier/frp/test/e2e/pkg/port"
 	"github.com/fatedier/frp/test/e2e/pkg/request"
 )
@@ -15,37 +16,42 @@ import (
 var _ = ginkgo.Describe("[Feature: XTCP]", func() {
 	f := framework.NewDefaultFramework()
 
-	ginkgo.It("Fallback To STCP", func() {
-		serverConf := consts.DefaultServerConfig
-		clientConf := consts.DefaultClientConfig
+	ginkgo.It("P2P over local assisted addresses", func() {
+		stun, err := stunserver.New()
+		framework.ExpectNoError(err)
+		stun.Run()
+		defer stun.Close()
 
+		serverConf := consts.DefaultServerConfig
 		bindPortName := port.GenName("XTCP")
-		clientConf += fmt.Sprintf(`
+		stunAddr := stun.Addr()
+
+		serverClientConf := consts.DefaultClientConfig + fmt.Sprintf(`
+			natHoleStunServer = "%s"
 			[[proxies]]
 			name = "foo"
-			type = "stcp"
+			type = "xtcp"
+			secretKey = "abcdefg"
 			localPort = {{ .%s }}
+			allowUsers = ["*"]
+			`, stunAddr, framework.TCPEchoServerPort)
 
+		visitorClientConf := consts.DefaultClientConfig + fmt.Sprintf(`
+			natHoleStunServer = "%s"
 			[[visitors]]
 			name = "foo-visitor"
-			type = "stcp"
-			serverName = "foo"
-			bindPort = -1
-
-			[[visitors]]
-			name = "bar-visitor"
 			type = "xtcp"
-			serverName = "bar"
+			serverName = "foo"
+			secretKey = "abcdefg"
 			bindPort = {{ .%s }}
 			keepTunnelOpen = true
-			fallbackTo = "foo-visitor"
-			fallbackTimeoutMs = 200
-			`, framework.TCPEchoServerPort, bindPortName)
+			protocol = "quic"
+			`, stunAddr, bindPortName)
 
-		f.RunProcesses(serverConf, []string{clientConf})
+		f.RunProcesses(serverConf, []string{serverClientConf, visitorClientConf})
 		framework.NewRequestExpect(f).
 			RequestModify(func(r *request.Request) {
-				r.Timeout(time.Second)
+				r.Timeout(25 * time.Second)
 			}).
 			PortName(bindPortName).
 			Ensure()

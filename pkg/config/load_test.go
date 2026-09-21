@@ -29,19 +29,13 @@ import (
 
 const tomlServerContent = `
 bindAddr = "127.0.0.1"
-kcpBindPort = 7000
-quicBindPort = 7001
-tcpmuxHTTPConnectPort = 7005
-custom404Page = "/abc.html"
+bindPort = 7000
 transport.tcpKeepalive = 10
 `
 
 const yamlServerContent = `
 bindAddr: 127.0.0.1
-kcpBindPort: 7000
-quicBindPort: 7001
-tcpmuxHTTPConnectPort: 7005
-custom404Page: /abc.html
+bindPort: 7000
 transport:
   tcpKeepalive: 10
 `
@@ -49,10 +43,7 @@ transport:
 const jsonServerContent = `
 {
   "bindAddr": "127.0.0.1",
-  "kcpBindPort": 7000,
-  "quicBindPort": 7001,
-  "tcpmuxHTTPConnectPort": 7005,
-  "custom404Page": "/abc.html",
+  "bindPort": 7000,
   "transport": {
     "tcpKeepalive": 10
   }
@@ -75,10 +66,7 @@ func TestLoadServerConfig(t *testing.T) {
 			err := LoadConfigure([]byte(test.content), &svrCfg, true)
 			require.NoError(err)
 			require.EqualValues("127.0.0.1", svrCfg.BindAddr)
-			require.EqualValues(7000, svrCfg.KCPBindPort)
-			require.EqualValues(7001, svrCfg.QUICBindPort)
-			require.EqualValues(7005, svrCfg.TCPMuxHTTPConnectPort)
-			require.EqualValues("/abc.html", svrCfg.Custom404Page)
+			require.EqualValues(7000, svrCfg.BindPort)
 			require.EqualValues(10, svrCfg.Transport.TCPKeepAlive)
 		})
 	}
@@ -146,8 +134,8 @@ serverPort = 7000
 
 [[proxies]]
 name = "test"
-type = "tcp"
-remotePort = 6000
+type = "xtcp"
+localPort = 22
 `
 	clientCfg := v1.ClientConfig{}
 	err := LoadConfigure([]byte(proxyStr), &clientCfg, true)
@@ -162,7 +150,7 @@ serverPort = 7000
 
 [[visitors]]
 name = "test"
-type = "stcp"
+type = "xtcp"
 bindPort = 6000
 serverName = "server"
 `
@@ -173,25 +161,9 @@ serverName = "server"
 	err = LoadConfigure([]byte(visitorStr), &clientCfg, true)
 	require.Error(err)
 
-	pluginStr := `
-serverPort = 7000
-
-[[proxies]]
-name = "test"
-type = "tcp"
-remotePort = 6000
-[proxies.plugin]
-type = "unix_domain_socket"
-unixPath = "/tmp/uds.sock"
-`
-	err = LoadConfigure([]byte(pluginStr), &clientCfg, true)
-	require.NoError(err)
-	pluginStr += `unknown = "unknown"`
-	err = LoadConfigure([]byte(pluginStr), &clientCfg, true)
-	require.Error(err)
 }
 
-func TestLoadClientConfigStrictMode_UnknownPluginField(t *testing.T) {
+func TestLoadClientConfigStrictMode_UnknownProxyField(t *testing.T) {
 	require := require.New(t)
 
 	content := `
@@ -199,12 +171,9 @@ serverPort = 7000
 
 [[proxies]]
 name = "test"
-type = "tcp"
+type = "xtcp"
 localPort = 6000
-[proxies.plugin]
-type = "http2https"
-localAddr = "127.0.0.1:8080"
-unknownInPlugin = "value"
+unknownField = "value"
 `
 
 	clientCfg := v1.ClientConfig{}
@@ -213,7 +182,7 @@ unknownInPlugin = "value"
 	require.NoError(err)
 
 	err = LoadConfigure([]byte(content), &clientCfg, true)
-	require.ErrorContains(err, "unknownInPlugin")
+	require.ErrorContains(err, "unknownField")
 }
 
 // TestYAMLMergeInStrictMode tests that YAML merge functionality works
@@ -226,7 +195,7 @@ serverAddr: "127.0.0.1"
 serverPort: 7000
 
 .common: &common
-  type: stcp
+  type: xtcp
   secretKey: "test-secret"
   localIP: 127.0.0.1
   transport:
@@ -255,12 +224,12 @@ proxies:
 	// Check first proxy
 	sshProxy := clientCfg.Proxies[0].ProxyConfigurer
 	require.Equal("ssh", sshProxy.GetBaseConfig().Name)
-	require.Equal("stcp", sshProxy.GetBaseConfig().Type)
+	require.Equal("xtcp", sshProxy.GetBaseConfig().Type)
 
 	// Check second proxy
 	webProxy := clientCfg.Proxies[1].ProxyConfigurer
 	require.Equal("web", webProxy.GetBaseConfig().Name)
-	require.Equal("stcp", webProxy.GetBaseConfig().Type)
+	require.Equal("xtcp", webProxy.GetBaseConfig().Type)
 }
 
 // TestOptimizedYAMLProcessing tests the optimization logic for YAML processing
@@ -270,7 +239,7 @@ func TestOptimizedYAMLProcessing(t *testing.T) {
 	yamlWithDotFields := []byte(`
 serverAddr: "127.0.0.1"
 .common: &common
-  type: stcp
+  type: xtcp
 proxies:
 - name: test
   <<: *common
@@ -280,7 +249,7 @@ proxies:
 serverAddr: "127.0.0.1"
 proxies:
 - name: test
-  type: tcp
+  type: xtcp
   localPort: 22
 `)
 
@@ -298,16 +267,16 @@ proxies:
 	require.Equal("127.0.0.1", clientCfg.ServerAddr)
 	require.Len(clientCfg.Proxies, 1)
 	require.Equal("test", clientCfg.Proxies[0].ProxyConfigurer.GetBaseConfig().Name)
-	require.Equal("stcp", clientCfg.Proxies[0].ProxyConfigurer.GetBaseConfig().Type)
+	require.Equal("xtcp", clientCfg.Proxies[0].ProxyConfigurer.GetBaseConfig().Type)
 }
 
 func TestFilterClientConfigurers_PreserveRawNamesAndNoMutation(t *testing.T) {
 	require := require.New(t)
 
 	enabled := true
-	proxyCfg := &v1.TCPProxyConfig{}
+	proxyCfg := &v1.XTCPProxyConfig{}
 	proxyCfg.Name = "proxy-raw"
-	proxyCfg.Type = "tcp"
+	proxyCfg.Type = "xtcp"
 	proxyCfg.LocalPort = 10080
 	proxyCfg.Enabled = &enabled
 
@@ -346,9 +315,9 @@ func TestCompleteProxyConfigurers_PreserveRawNames(t *testing.T) {
 	require := require.New(t)
 
 	enabled := true
-	proxyCfg := &v1.TCPProxyConfig{}
+	proxyCfg := &v1.XTCPProxyConfig{}
 	proxyCfg.Name = "proxy-raw"
-	proxyCfg.Type = "tcp"
+	proxyCfg.Type = "xtcp"
 	proxyCfg.LocalPort = 10080
 	proxyCfg.Enabled = &enabled
 
@@ -389,9 +358,9 @@ func TestCompleteVisitorConfigurers_PreserveRawNames(t *testing.T) {
 func TestCompleteProxyConfigurers_Idempotent(t *testing.T) {
 	require := require.New(t)
 
-	proxyCfg := &v1.TCPProxyConfig{}
+	proxyCfg := &v1.XTCPProxyConfig{}
 	proxyCfg.Name = "proxy"
-	proxyCfg.Type = "tcp"
+	proxyCfg.Type = "xtcp"
 	proxyCfg.LocalPort = 10080
 
 	proxies := CompleteProxyConfigurers([]v1.ProxyConfigurer{proxyCfg})
@@ -432,21 +401,21 @@ func TestFilterClientConfigurers_FilterByStartAndEnabled(t *testing.T) {
 	enabled := true
 	disabled := false
 
-	proxyKeep := &v1.TCPProxyConfig{}
+	proxyKeep := &v1.XTCPProxyConfig{}
 	proxyKeep.Name = "keep"
-	proxyKeep.Type = "tcp"
+	proxyKeep.Type = "xtcp"
 	proxyKeep.LocalPort = 10080
 	proxyKeep.Enabled = &enabled
 
-	proxyDropByStart := &v1.TCPProxyConfig{}
+	proxyDropByStart := &v1.XTCPProxyConfig{}
 	proxyDropByStart.Name = "drop-by-start"
-	proxyDropByStart.Type = "tcp"
+	proxyDropByStart.Type = "xtcp"
 	proxyDropByStart.LocalPort = 10081
 	proxyDropByStart.Enabled = &enabled
 
-	proxyDropByEnabled := &v1.TCPProxyConfig{}
+	proxyDropByEnabled := &v1.XTCPProxyConfig{}
 	proxyDropByEnabled.Name = "drop-by-enabled"
-	proxyDropByEnabled.Type = "tcp"
+	proxyDropByEnabled.Type = "xtcp"
 	proxyDropByEnabled.LocalPort = 10082
 	proxyDropByEnabled.Enabled = &disabled
 
@@ -478,15 +447,15 @@ serverPort = 7000
 
 [[proxies]]
 name = "dup"
-type = "tcp"
+type = "xtcp"
 localPort = 22
-remotePort = 6000
+secretKey = "a"
 
 [[proxies]]
 name = "dup"
-type = "tcp"
+type = "xtcp"
 localPort = 3306
-remotePort = 6001
+secretKey = "b"
 `,
 			errSubstr: "proxy name [dup] is duplicated",
 		},
@@ -498,14 +467,14 @@ serverPort = 7000
 
 [[visitors]]
 name = "dup"
-type = "stcp"
+type = "xtcp"
 serverName = "a"
 secretKey = "secret"
 bindPort = 9001
 
 [[visitors]]
 name = "dup"
-type = "stcp"
+type = "xtcp"
 serverName = "b"
 secretKey = "secret"
 bindPort = 9002
@@ -520,15 +489,15 @@ serverPort = 7000
 
 [[proxies]]
 name = "p1"
-type = "tcp"
+type = "xtcp"
 localPort = 22
-remotePort = 6000
+secretKey = "a"
 
 [[proxies]]
 name = "p2"
-type = "tcp"
+type = "xtcp"
 localPort = 3306
-remotePort = 6001
+secretKey = "b"
 `,
 		},
 		{
@@ -539,13 +508,13 @@ serverPort = 7000
 
 [[proxies]]
 name = "same"
-type = "tcp"
+type = "xtcp"
 localPort = 22
-remotePort = 6000
+secretKey = "a"
 
 [[visitors]]
 name = "same"
-type = "stcp"
+type = "xtcp"
 serverName = "a"
 secretKey = "secret"
 bindPort = 9001
@@ -646,8 +615,8 @@ serverPort = 7000
 
 [[proxies]]
 name = "test"
-type = "tcp"
-remotePort = 6000
+type = "xtcp"
+localPort = 22
 `)
 
 	tests := []struct {
@@ -658,7 +627,7 @@ remotePort = 6000
 		{"serverPort", 2},
 		{"name", 5},
 		{"type", 6},
-		{"remotePort", 7},
+		{"localPort", 7},
 		{"nonexistent", 0},
 	}
 
@@ -700,8 +669,8 @@ serverPort = 7000
 
 [[proxies]]
 name = "test"
-type = "tcp"
-remotePort = 6000
+type = "xtcp"
+localPort = 22
 `
 	clientCfg := v1.ClientConfig{}
 	err := LoadConfigure([]byte(content), &clientCfg, false, "toml")
