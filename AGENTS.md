@@ -6,6 +6,7 @@
 - `make build` - Build both frps and frpc binaries
 - `make frps` - Build server binary only
 - `make frpc` - Build client binary only
+- `make libfrpc` - Build the embeddable C shared library
 - `make all` - Build everything with formatting
 
 ### Testing

@@ -109,6 +109,7 @@ type Service struct {
 	// Stores gracefulShutdownDuration independently from ctlMu, because the
 	// graceful shutdown wait may hold ctlMu for an arbitrary duration.
 	gracefulShutdownDuration atomic.Int64
+	controlEpoch             atomic.Uint64
 	// manager control connection with server
 	ctl *Control
 	// Uniq id got from frps, it will be attached to loginMsg.
@@ -220,7 +221,9 @@ func (svr *Service) Run(ctx context.Context) error {
 }
 
 func (svr *Service) keepControllerWorking() {
-	<-svr.ctl.Done()
+	if ctl := svr.currentControl(); ctl != nil {
+		<-ctl.Done()
+	}
 
 	// There is a situation where the login is successful but due to certain reasons,
 	// the control immediately exits. It is necessary to limit the frequency of reconnection in this case.
@@ -230,8 +233,8 @@ func (svr *Service) keepControllerWorking() {
 		// loopLoginUntilSuccess is another layer of loop that will continuously attempt to
 		// login to the server until successful.
 		svr.loopLoginUntilSuccess(20*time.Second, false)
-		if svr.ctl != nil {
-			<-svr.ctl.Done()
+		if ctl := svr.currentControl(); ctl != nil {
+			<-ctl.Done()
 			return false, errors.New("control is closed and try another loop")
 		}
 		// If the control is nil, it means that the login failed and the service is also closed.
@@ -272,15 +275,16 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 		}
 
 		svr.runID = sessionCtx.RunID
-		xl.AddPrefix(xlog.LogPrefix{Name: "runID", Value: svr.runID})
-		xl.Infof("login to server success, get run id [%s]", svr.runID)
+		sessionLog := xl.Spawn().AddPrefix(xlog.LogPrefix{Name: "runID", Value: svr.runID})
+		sessionLog.Infof("login to server success, get run id [%s]", svr.runID)
+		ctlCtx := xlog.NewContext(svr.ctx, sessionLog)
 
 		svr.cfgMu.RLock()
 		proxyCfgs := svr.proxyCfgs
 		visitorCfgs := svr.visitorCfgs
 		svr.cfgMu.RUnlock()
 
-		ctl, err := NewControl(svr.ctx, sessionCtx)
+		ctl, err := NewControl(ctlCtx, sessionCtx)
 		if err != nil {
 			sessionCtx.Conn.Close()
 			sessionCtx.Connector.Close()
@@ -296,6 +300,7 @@ func (svr *Service) loopLoginUntilSuccess(maxInterval time.Duration, firstLoginE
 			svr.ctl.Close()
 		}
 		svr.ctl = ctl
+		svr.controlEpoch.Add(1)
 		svr.ctlMu.Unlock()
 		return true, nil
 	}
@@ -357,6 +362,46 @@ func (svr *Service) UpdateConfigSource(
 
 func (svr *Service) Close() {
 	svr.GracefulClose(time.Duration(0))
+}
+
+// RunID returns the unique id assigned by frps. It is empty before the first login.
+func (svr *Service) RunID() string {
+	svr.ctlMu.RLock()
+	defer svr.ctlMu.RUnlock()
+	return svr.runID
+}
+
+// ControlRunning reports whether the current control session is alive.
+func (svr *Service) ControlRunning() bool {
+	ctl := svr.currentControl()
+	if ctl == nil {
+		return false
+	}
+	select {
+	case <-ctl.Done():
+		return false
+	default:
+		return true
+	}
+}
+
+func (svr *Service) currentControl() *Control {
+	svr.ctlMu.RLock()
+	defer svr.ctlMu.RUnlock()
+	return svr.ctl
+}
+
+// ControlEpoch increases every time a new control session is established.
+func (svr *Service) ControlEpoch() uint64 {
+	return svr.controlEpoch.Load()
+}
+
+// DisconnectControl closes the current control connection so keepControllerWorking
+// will log in again. It is a no-op if the client has not logged in yet.
+func (svr *Service) DisconnectControl() {
+	if ctl := svr.currentControl(); ctl != nil {
+		ctl.CloseSession()
+	}
 }
 
 func (svr *Service) GracefulClose(d time.Duration) {

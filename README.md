@@ -140,6 +140,7 @@ TCP / UDP / HTTP / HTTPS / STCP / SUDP / TCPMUX proxies, plugins, VirtualNet, SS
 
 ```bash
 make build      # frps + frpc
+make libfrpc    # embeddable C shared library (see libfrpc/README.md)
 make test       # unit tests
 make e2e        # XTCP e2e (Ginkgo)
 make alltest    # vet + unit + e2e

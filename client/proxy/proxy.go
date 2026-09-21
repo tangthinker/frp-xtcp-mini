@@ -72,10 +72,10 @@ func NewProxy(
 }
 
 type BaseProxy struct {
-	baseCfg        *v1.ProxyBaseConfig
-	clientCfg      *v1.ClientCommonConfig
-	encryptionKey  []byte
-	msgTransporter transport.MessageTransporter
+	baseCfg            *v1.ProxyBaseConfig
+	clientCfg          *v1.ClientCommonConfig
+	encryptionKey      []byte
+	msgTransporter     transport.MessageTransporter
 	inWorkConnCallback func(*v1.ProxyBaseConfig, net.Conn, *msg.StartWorkConn) bool
 
 	mu             sync.RWMutex

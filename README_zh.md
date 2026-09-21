@@ -140,6 +140,7 @@ TCP / UDP / HTTP / HTTPS / STCP / SUDP / TCPMUX 代理、插件、VirtualNet、S
 
 ```bash
 make build      # 编译 frps + frpc
+make libfrpc    # 可嵌入的 C 共享库（见 libfrpc/README.md）
 make test       # 单元测试
 make e2e        # XTCP 端到端测试（Ginkgo）
 make alltest    # vet + 单元测试 + e2e

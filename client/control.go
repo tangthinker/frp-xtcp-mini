@@ -201,6 +201,11 @@ func (ctl *Control) closeSession() {
 	ctl.sessionCtx.Connector.Close()
 }
 
+// CloseSession drops the control connection so the client service can reconnect.
+func (ctl *Control) CloseSession() {
+	ctl.closeSession()
+}
+
 func (ctl *Control) Close() error {
 	return ctl.GracefulClose(0)
 }

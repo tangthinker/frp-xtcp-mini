@@ -37,9 +37,9 @@ import (
 type controlSessionDialer struct {
 	ctx context.Context
 
-	common         *v1.ClientCommonConfig
-	auth           *auth.ClientAuth
-	clientSpec     *msg.ClientSpec
+	common     *v1.ClientCommonConfig
+	auth       *auth.ClientAuth
+	clientSpec *msg.ClientSpec
 
 	connectorCreator func(context.Context, *v1.ClientCommonConfig) Connector
 }
