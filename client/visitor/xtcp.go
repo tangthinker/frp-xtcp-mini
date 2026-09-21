@@ -262,7 +262,7 @@ func (sv *XTCPVisitor) makeNatHole() {
 		opts.DisableAssistedAddrs = true
 	}
 
-	prepareResult, err := nathole.Prepare([]string{sv.clientCfg.NatHoleSTUNServer}, opts)
+	prepareResult, err := nathole.Prepare(nathole.StunServers(sv.clientCfg.NatHoleSTUNServer), opts)
 	if err != nil {
 		xl.Warnf("nathole prepare error: %v", err)
 		return

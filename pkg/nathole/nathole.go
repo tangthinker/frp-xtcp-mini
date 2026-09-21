@@ -33,6 +33,35 @@ import (
 	"github.com/fatedier/frp/pkg/util/xlog"
 )
 
+var defaultStunFallbacks = []string{
+	"stun.qq.com:3478",
+	"stun.miwifi.com:3478",
+	"stun.l.google.com:19302",
+	"stun.easyvoip.com:3478",
+}
+
+// StunServers returns primary plus China-reachable fallbacks, de-duplicated.
+func StunServers(primary string) []string {
+	out := make([]string, 0, 1+len(defaultStunFallbacks))
+	seen := map[string]struct{}{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if _, ok := seen[s]; ok {
+			return
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	add(primary)
+	for _, s := range defaultStunFallbacks {
+		add(s)
+	}
+	return out
+}
+
 var (
 	// mode 0: simple detect mode, usually for both EasyNAT or HardNAT & EasyNAT(Public Network)
 	// a. receiver sends detect message with low TTL
@@ -120,6 +149,9 @@ func Prepare(stunServers []string, opts PrepareOptions) (*PrepareResult, error) 
 	addrs, localAddr, err := Discover(stunServers, "")
 	if err != nil {
 		return nil, fmt.Errorf("discover error: %v", err)
+	}
+	if len(addrs) == 1 {
+		addrs = append(addrs, addrs[0])
 	}
 	if len(addrs) < 2 {
 		return nil, fmt.Errorf("discover error: not enough addresses")

@@ -311,8 +311,10 @@ func TestSTUNResponseErrorsAndMissingAddresses(t *testing.T) {
 			)
 		})
 
-		_, err := Prepare([]string{server.LocalAddr().String()}, PrepareOptions{})
-		require.EqualError(t, err, "discover error: not enough addresses")
+		result, err := Prepare([]string{server.LocalAddr().String()}, PrepareOptions{})
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = result.ListenConn.Close() })
+		require.Equal(t, EasyNAT, result.NatType)
 		waitSTUNExchange(t, done)
 	})
 }

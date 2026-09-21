@@ -23,7 +23,7 @@ import (
 	"github.com/fatedier/golib/net/stun"
 )
 
-var responseTimeout = 3 * time.Second
+var responseTimeout = 5 * time.Second
 
 // If the localAddr is empty, it will listen on a random port.
 func Discover(stunServers []string, localAddr string) ([]string, net.Addr, error) {
@@ -33,14 +33,24 @@ func Discover(stunServers []string, localAddr string) ([]string, net.Addr, error
 	}
 	defer discoverConn.Close()
 
-	addresses := make([]string, 0, len(stunServers))
+	var lastErr error
+	addresses := make([]string, 0, len(stunServers)*2)
 	for _, addr := range stunServers {
-		// get external address from stun server
 		externalAddrs, err := discoverConn.discoverFromStunServer(addr)
 		if err != nil {
-			return nil, nil, err
+			lastErr = err
+			continue
 		}
 		addresses = append(addresses, externalAddrs...)
+		if len(addresses) >= 2 {
+			break
+		}
+	}
+	if len(addresses) == 0 {
+		if lastErr != nil {
+			return nil, nil, lastErr
+		}
+		return nil, nil, fmt.Errorf("wait response from stun server timeout")
 	}
 	return addresses, discoverConn.localAddr, nil
 }
@@ -133,10 +143,10 @@ func (c *discoverConn) discoverFromStunServer(addr string) ([]string, error) {
 		return externalAddrs, nil
 	}
 
-	// find external address from changed address
+	// CHANGE-ADDRESS is often unreachable; keep the first mapping instead of failing Prepare.
 	resp, err = c.doSTUNRequest(resp.otherAddr)
 	if err != nil {
-		return nil, err
+		return externalAddrs, nil
 	}
 	if resp.externalAddr != "" {
 		externalAddrs = append(externalAddrs, resp.externalAddr)
