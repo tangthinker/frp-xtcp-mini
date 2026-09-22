@@ -25,6 +25,12 @@ static void frpc_invoke_event_cb(frpc_event_cb cb, int handle, const char *json,
 		cb(handle, json, userdata);
 	}
 }
+
+// Runs before the Go runtime constructor so Flutter's VM is not preempted by SIGURG.
+__attribute__((constructor(101)))
+static void frpc_early_godebug(void) {
+	setenv("GODEBUG", "asyncpreemptoff=1", 1);
+}
 */
 import "C"
 
